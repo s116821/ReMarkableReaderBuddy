@@ -62,7 +62,11 @@ impl Touch {
             DeviceModel::Unknown => "/dev/input/event2", // Default to RM2
         };
 
-        let device = if no_touch { None } else { Some(Device::open(device_path).unwrap()) };
+        let device = if no_touch {
+            None
+        } else {
+            Some(Device::open(device_path).unwrap())
+        };
 
         Self {
             device,
@@ -93,7 +97,10 @@ impl Touch {
                 }
                 if event.code() == ABS_MT_TRACKING_ID && event.value() == -1 {
                     let (x, y) = self.input_to_virtual((position_x, position_y));
-                    debug!("Touch release detected at ({}, {}) normalized ({}, {})", position_x, position_y, x, y);
+                    debug!(
+                        "Touch release detected at ({}, {}) normalized ({}, {})",
+                        position_x, position_y, x, y
+                    );
                     if self.is_in_trigger_zone(x, y) {
                         debug!("Touch release in target zone!");
                         return Ok(());
@@ -161,7 +168,9 @@ impl Touch {
         match self.trigger_corner {
             TriggerCorner::UpperRight => x > VIRTUAL_WIDTH as i32 - CORNER_SIZE && y < CORNER_SIZE,
             TriggerCorner::UpperLeft => x < CORNER_SIZE && y < CORNER_SIZE,
-            TriggerCorner::LowerRight => x > VIRTUAL_WIDTH as i32 - CORNER_SIZE && y > VIRTUAL_HEIGHT as i32 - CORNER_SIZE,
+            TriggerCorner::LowerRight => {
+                x > VIRTUAL_WIDTH as i32 - CORNER_SIZE && y > VIRTUAL_HEIGHT as i32 - CORNER_SIZE
+            }
             TriggerCorner::LowerLeft => x < CORNER_SIZE && y > VIRTUAL_HEIGHT as i32 - CORNER_SIZE,
         }
     }
@@ -222,4 +231,3 @@ impl Touch {
         }
     }
 }
-

@@ -9,8 +9,10 @@ use std::time::Duration;
 #[derive(Parser)]
 #[command(author, version)]
 #[command(about = "ReMarkable Reader Buddy - AI-powered reading assistant for reMarkable tablets")]
-#[command(long_about = "ReMarkable Reader Buddy watches for circled content and handwritten questions, \
-                        then uses ChatGPT to provide answers directly on your reMarkable tablet.")]
+#[command(
+    long_about = "ReMarkable Reader Buddy watches for circled content and handwritten questions, \
+                        then uses ChatGPT to provide answers directly on your reMarkable tablet."
+)]
 pub struct Args {
     /// OpenAI API key (can also be set via OPENAI_API_KEY env var)
     #[arg(long, env = "OPENAI_API_KEY")]
@@ -100,4 +102,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-

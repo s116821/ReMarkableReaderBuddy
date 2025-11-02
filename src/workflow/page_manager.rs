@@ -13,13 +13,13 @@ impl PageManager {
     /// Uses swipe gesture simulation to navigate and create pages
     pub fn create_page_right(touch: &mut Touch) -> Result<()> {
         info!("Creating new page to the right via swipe gesture");
-        
+
         // Strategy: Swipe left to go to next page
         // If we're at the last page, xochitl will create a new blank page
-        
+
         Self::swipe_left(touch)?;
         sleep(Duration::from_millis(500)); // Wait for page transition
-        
+
         Ok(())
     }
 
@@ -43,19 +43,19 @@ impl PageManager {
     /// Swipes from right edge to left
     fn swipe_left(touch: &mut Touch) -> Result<()> {
         debug!("Simulating left swipe");
-        
+
         // Start from right edge, middle height
         let start_x = 700;
         let start_y = 512;
-        
+
         // End at left side, same height
         let end_x = 100;
         let end_y = 512;
-        
+
         // Perform swipe with multiple touch points for smooth gesture
         touch.touch_start((start_x, start_y))?;
         sleep(Duration::from_millis(50));
-        
+
         // Interpolate between start and end
         let steps = 10;
         for i in 1..=steps {
@@ -65,7 +65,7 @@ impl PageManager {
             touch.goto_xy((x, y))?;
             sleep(Duration::from_millis(10));
         }
-        
+
         touch.touch_stop()?;
         Ok(())
     }
@@ -74,19 +74,19 @@ impl PageManager {
     /// Swipes from left edge to right
     fn swipe_right(touch: &mut Touch) -> Result<()> {
         debug!("Simulating right swipe");
-        
+
         // Start from left edge, middle height
         let start_x = 100;
         let start_y = 512;
-        
+
         // End at right side, same height
         let end_x = 700;
         let end_y = 512;
-        
+
         // Perform swipe with multiple touch points for smooth gesture
         touch.touch_start((start_x, start_y))?;
         sleep(Duration::from_millis(50));
-        
+
         // Interpolate between start and end
         let steps = 10;
         for i in 1..=steps {
@@ -96,9 +96,8 @@ impl PageManager {
             touch.goto_xy((x, y))?;
             sleep(Duration::from_millis(10));
         }
-        
+
         touch.touch_stop()?;
         Ok(())
     }
 }
-

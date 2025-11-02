@@ -45,7 +45,7 @@ impl CircleDetector {
         // - Contour approximation and circularity metrics
 
         debug!("Circle detection placeholder - returning empty results");
-        
+
         Ok(circles)
     }
 
@@ -55,9 +55,8 @@ impl CircleDetector {
         // TODO: Implement LLM-based circle detection
         // Send image to vision model with prompt asking to identify circled regions
         // Parse response to extract bounding boxes
-        
+
         info!("Using LLM-based circle detection (not yet implemented)");
         Ok(vec![])
     }
 }
-

@@ -19,13 +19,13 @@ impl Renderer {
 
         // Render the symbol marker
         // TODO: Create a proper symbol rendering system
-        
+
         // Render question
         keyboard.string_to_keypresses(&format!("Q: {}\n\n", question))?;
-        
+
         // Render answer
         keyboard.string_to_keypresses(&format!("A: {}\n\n", answer))?;
-        
+
         Ok(())
     }
 
@@ -36,4 +36,3 @@ impl Renderer {
         vec![vec![false; 10]; 10]
     }
 }
-
