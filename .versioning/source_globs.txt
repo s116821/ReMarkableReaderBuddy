@@ -1,0 +1,10 @@
+# Rust source files
+src/**/*.rs
+
+# Cargo configuration
+Cargo.toml
+Cargo.lock
+
+# Build scripts
+build.rs
+

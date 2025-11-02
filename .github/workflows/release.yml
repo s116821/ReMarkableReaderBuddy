@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  semantic-version:
+    name: Semantic Versioning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for creating tags and pushing
+    outputs:
+      bump-kind: ${{ steps.version.outputs.bump-kind }}
+      next-version: ${{ steps.version.outputs.next-version }}
+      tag: ${{ steps.version.outputs.tag }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper semantic versioning
+      
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: MagDrago Rust Semver Action
+        id: version
+        uses: s116821/MagDragoRustSemverAction@v0.1.0
+        with:
+          source-globs: .versioning/source_globs.txt
+          tag-scope: v
+          default-base: 0.1.0
+          git-user-name: github-actions[bot]
+          git-user-email: github-actions[bot]@users.noreply.github.com
+
+  build-release:
+    name: Build Release Binaries
+    needs: semantic-version
+    runs-on: ubuntu-latest
+    if: ${{ needs.semantic-version.outputs.bump-kind != 'none' }}
+    
+    strategy:
+      matrix:
+        target:
+          - armv7-unknown-linux-gnueabihf  # reMarkable 2
+          - aarch64-unknown-linux-gnu      # reMarkable Paper Pro
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+      
+      - name: Build release binary
+        run: cross build --release --target=${{ matrix.target }}
+      
+      - name: Package binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf reader-buddy-${{ matrix.target }}.tar.gz reader-buddy
+          mv reader-buddy-${{ matrix.target }}.tar.gz ${{ github.workspace }}/
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reader-buddy-${{ matrix.target }}
+          path: reader-buddy-${{ matrix.target }}.tar.gz
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: [semantic-version, build-release]
+    runs-on: ubuntu-latest
+    if: ${{ needs.semantic-version.outputs.bump-kind != 'none' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.semantic-version.outputs.tag }}
+          name: Release ${{ needs.semantic-version.outputs.tag }}
+          body: |
+            ## ReMarkable Reader Buddy ${{ needs.semantic-version.outputs.tag }}
+            
+            AI-powered reading assistant for reMarkable tablets.
+            
+            ### Downloads
+            
+            - **reMarkable 2**: `reader-buddy-armv7-unknown-linux-gnueabihf.tar.gz`
+            - **reMarkable Paper Pro**: `reader-buddy-aarch64-unknown-linux-gnu.tar.gz`
+            
+            ### Installation
+            
+            ```bash
+            # Extract the appropriate binary for your device
+            tar xzf reader-buddy-*.tar.gz
+            
+            # Copy to your reMarkable
+            scp reader-buddy root@10.11.99.1:
+            
+            # Set your OpenAI API key and run
+            ssh root@10.11.99.1
+            export OPENAI_API_KEY=your-key-here
+            ./reader-buddy
+            ```
+            
+            See the [README](https://github.com/${{ github.repository }}/blob/main/README.md) for full documentation.
+          files: |
+            artifacts/**/*.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
