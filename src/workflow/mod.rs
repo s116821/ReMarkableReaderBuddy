@@ -1,6 +1,7 @@
 pub mod orchestrator;
 pub mod page_manager;
 pub mod renderer;
+pub mod symbol_pool;
 
 use anyhow::Result;
 use log::{info, debug};
@@ -115,6 +116,23 @@ impl Workflow {
     /// Get access to the pen for direct manipulation
     pub fn get_pen_mut(&mut self) -> &mut Pen {
         &mut self.pen
+    }
+
+    /// Get access to the touch device for direct manipulation
+    pub fn get_touch_mut(&mut self) -> &mut Touch {
+        &mut self.touch
+    }
+
+    /// Create a new page to the right of the current page
+    pub fn create_new_page_right(&mut self) -> Result<()> {
+        page_manager::PageManager::create_page_right(&mut self.touch)?;
+        Ok(())
+    }
+
+    /// Navigate back to the previous page
+    pub fn navigate_to_previous_page(&mut self) -> Result<()> {
+        page_manager::PageManager::previous_page(&mut self.touch)?;
+        Ok(())
     }
 }
 

@@ -36,11 +36,12 @@ src/
 2. User writes question nearby
 3. User touches lower-right corner
 4. App captures screenshot (768x1024)
-5. **Single LLM Call**: Detects outline + extracts question + generates answer
-6. **[TODO]** Create new blank page after current
-7. Render Q&A on new page
-8. **[TODO]** Erase question text (preserve outline)
-9. **[TODO]** Draw reference symbol on both pages
+5. **Single LLM Call**: Detects outline + extracts question + generates answer + provides bounding boxes
+6. **Erase question text** (preserves outline) if bounding box available
+7. **Draw reference symbol** (①②③④⑤...) on original page where question was
+8. **Create new blank page** after current via swipe gesture
+9. **Render Q&A** on new page with matching symbol
+10. **Navigate back** to original page to preserve reading context
 
 ### Why Single LLM Call?
 
@@ -86,68 +87,83 @@ Reads `/etc/hwrevision` to determine:
 - Maps characters to key events
 - Supports Ctrl commands for text formatting
 
-## High Priority TODOs
+## Implemented Features (v0.1)
 
-### 1. Page Management System
+### ✅ Page Management System
 
-**Goal**: Insert new blank page after current page
+**Implementation**: Uses touch gesture simulation
+- Swipes left to navigate to next page
+- If at last page, xochitl auto-creates new blank page
+- Swipe right to navigate back
+- Methods: `create_page_right()`, `next_page()`, `previous_page()`
+- **File**: `src/workflow/page_manager.rs`
 
-**Research Needed**:
-- How does xochitl manage pages?
-- File system structure for documents
-- IPC mechanisms available
-- Page navigation triggers
+### ✅ Outline Preservation
 
-**Approaches to Investigate**:
-- Direct file system manipulation
-- xochitl process signals
-- D-Bus IPC (if available)
-- Touch gesture simulation for page creation
+**Implementation**: LLM returns separate bounding boxes
+- `QUESTION_BOX`: Location of question text (erased)
+- `OUTLINE_BOX`: Location of outline shape (preserved)
+- Only the question region is erased, outline remains visible
+- **File**: `src/workflow/orchestrator.rs` (parse_bounding_box)
 
-### 2. Outline Preservation
+### ✅ Symbol Pool Implementation
 
-**Goal**: Erase only question text, keep outline intact
+**Implementation**: Persistent symbol cycling
+- Pool of 10 symbols: ①②③④⑤⑥⑦⑧⑨⑩
+- Cycles through pool across triggers
+- State persists in `/home/root/.reader-buddy-symbol-state`
+- Automatically loads on startup
+- **File**: `src/workflow/symbol_pool.rs`
 
-**Required Changes**:
+### ✅ Question Erasure
 
-Update `QuestionContext`:
-```rust
-pub struct QuestionContext {
-    pub outlined_content_region: BoundingBox,  // Don't erase
-    pub question_region: Option<BoundingBox>,  // Erase this
-    pub question_text: String,
-    pub full_screenshot_base64: String,
-}
-```
+**Implementation**: Uses erase_region() with bounding box
+- Erases only the question text region
+- Outline shape is not affected (different bounding box)
+- Falls back gracefully if no bounding box provided
+- **File**: `src/workflow/orchestrator.rs` (render_answer)
 
-Update LLM prompt to return TWO regions:
-- OUTLINE_REGION: The drawn shape (preserve)
-- QUESTION_REGION: The text (erase)
+### ✅ Dual Symbol Placement
 
-### 3. Symbol Pool Implementation
+**Implementation**: Symbol appears on both pages
+- Drawn on original page at question location
+- Rendered at start of Q&A on answer page
+- Same symbol used for linking
+- **File**: `src/workflow/orchestrator.rs` (render_answer)
 
-**Goal**: Reference markers ①②③④⑤⑥⑦⑧⑨⑩
+## Remaining TODOs
 
-**Requirements**:
-- Pool of 10 distinct symbols
-- Cycle through them across triggers
-- Persist symbol counter across app restarts
-- Render clearly at small size
-- Place on both source and answer pages
+### 🔧 Symbol Rendering Enhancement
 
-**Rendering Options**:
-- SVG to bitmap conversion
-- Font-based rendering (if reMarkable fonts available)
+**Current**: Simple geometric circle
+**Goal**: Render actual ①②③④⑤ glyphs
+
+**Options to explore**:
+- Font-based rendering (check if system fonts have circled numbers)
 - Pre-rendered bitmap glyphs
+- SVG paths for each symbol
 
-### 4. Question Erasure
+**File**: `src/workflow/symbol_pool.rs` (symbol_to_bitmap method)
 
-**Goal**: White-fill question region only
+### 🔧 Improved Bounding Box Accuracy
+
+**Current**: LLM provides approximate boxes
+**Goal**: More precise regions for better erasure
+
+**Approaches**:
+- Fine-tune LLM prompt
+- Add local CV validation
+- Use multiple iterations if needed
+
+### 🔧 White Erasure Testing
+
+**Current**: Uses pen drawing for erasure
+**Goal**: Ensure it actually erases on device
 
 **Testing Needed**:
-- Verify white rectangle erases on device
-- Ensure it doesn't affect outline
-- Handle different pen colors/thicknesses
+- Verify erasure works with different pen colors
+- Check if white fill is effective
+- May need alternative approach (background color matching)
 
 ## Dependencies
 

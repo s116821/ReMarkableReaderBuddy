@@ -23,7 +23,7 @@ An AI-powered reading assistant for the reMarkable tablet that watches for circl
 7. **Render**: Displays the question and answer on the new page
 8. **Mark & Link**: Erases the original question (but leaves the outline intact), places a reference symbol (①, ②, ③, etc.) on both pages to link them
 
-**Current Limitation**: Processes one outline-question pair per trigger. Future versions may support multiple pairs in a single session.
+**Note**: Processes one outline-question pair per trigger. Future versions may support multiple pairs in a single session.
 
 ## Installation
 
@@ -201,10 +201,10 @@ Set the environment variable: `export OPENAI_API_KEY=your-key`
 
 ## Known Limitations
 
-- **Single Question Per Trigger**: Currently processes one outline-question pair per trigger (future: may support multiple pairs if use case emerges)
-- **Outline Detection**: Currently LLM-based (future: local CV algorithms for faster processing)
-- **Page Creation**: Not yet fully implemented - renders to current page (high priority TODO)
-- **Symbol Pool**: Simple geometric shapes (future: richer symbol library with ①②③ style markers)
+- **Single Question Per Trigger**: Processes one outline-question pair per trigger (future: may support multiple if use case emerges)
+- **Outline Detection**: Currently LLM-based (future: add local CV algorithms as optimization)
+- **Symbol Rendering**: Currently simple geometric shapes (TODO: render actual ①②③④⑤ glyphs)
+- **Bounding Box Accuracy**: LLM provides approximate regions (may need fine-tuning for precise erasure)
 - **Internet Required**: Requires connection for ChatGPT API
 - **No Context Retention**: Each trigger is independent (no follow-up question support in v0.1)
 
@@ -222,10 +222,11 @@ Releases are automatically created with pre-built binaries for both reMarkable d
 
 ## Contributing
 
-Contributions welcome! High priority items:
-- Page creation/navigation system
-- Symbol pool with ①②③④⑤ markers
-- Local outline detection (reduce LLM calls)
+Contributions welcome! Remaining enhancements:
+- Proper ①②③④⑤ glyph rendering (currently simple shapes)
+- Local CV outline detection (reduce LLM calls)
+- Improved bounding box accuracy
+- Device testing and refinement
 
 **Version Bumps**: Use `!` for major, `feature/` branches for minor, any code change for patch.
 

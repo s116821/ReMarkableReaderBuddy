@@ -134,6 +134,20 @@ impl Touch {
         Ok(())
     }
 
+    pub fn goto_xy(&mut self, xy: (i32, i32)) -> Result<()> {
+        let (x, y) = self.virtual_to_input(xy);
+        if let Some(device) = &mut self.device {
+            device.send_events(&[
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, ABS_MT_SLOT, 0),
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, ABS_MT_TRACKING_ID, 1),
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, ABS_MT_POSITION_X, x),
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, ABS_MT_POSITION_Y, y),
+                InputEvent::new(EvdevEventType::SYNCHRONIZATION.0, 0, 0), // SYN_REPORT
+            ])?;
+        }
+        Ok(())
+    }
+
     pub fn tap_middle_bottom(&mut self) -> Result<()> {
         self.touch_start((384, 1023))?; // middle bottom
         sleep(Duration::from_millis(100));
