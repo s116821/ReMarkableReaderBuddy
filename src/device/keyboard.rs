@@ -4,7 +4,10 @@ use log::debug;
 use std::collections::HashMap;
 use std::{thread, time};
 
-use evdev::{uinput::VirtualDevice, AttributeSet, EventType as EvdevEventType, InputEvent, KeyCode as EvdevKey};
+use evdev::{
+    uinput::VirtualDevice, AttributeSet, EventType as EvdevEventType, InputEvent,
+    KeyCode as EvdevKey,
+};
 
 pub struct Keyboard {
     device: Option<VirtualDevice>,
@@ -15,7 +18,11 @@ pub struct Keyboard {
 
 impl Keyboard {
     pub fn new(no_draw: bool, no_draw_progress: bool) -> Self {
-        let device = if no_draw { None } else { Some(Self::create_virtual_device()) };
+        let device = if no_draw {
+            None
+        } else {
+            Some(Self::create_virtual_device())
+        };
 
         Self {
             device,
@@ -228,7 +235,11 @@ impl Keyboard {
                 if let Some(&(key, shift)) = self.key_map.get(&c) {
                     if shift {
                         // Press Shift
-                        device.emit(&[InputEvent::new(EvdevEventType::KEY.0, EvdevKey::KEY_LEFTSHIFT.code(), 1)])?;
+                        device.emit(&[InputEvent::new(
+                            EvdevEventType::KEY.0,
+                            EvdevKey::KEY_LEFTSHIFT.code(),
+                            1,
+                        )])?;
                     }
 
                     // Press key
@@ -239,7 +250,11 @@ impl Keyboard {
 
                     if shift {
                         // Release Shift
-                        device.emit(&[InputEvent::new(EvdevEventType::KEY.0, EvdevKey::KEY_LEFTSHIFT.code(), 0)])?;
+                        device.emit(&[InputEvent::new(
+                            EvdevEventType::KEY.0,
+                            EvdevKey::KEY_LEFTSHIFT.code(),
+                            0,
+                        )])?;
                     }
 
                     // Sync event
@@ -308,4 +323,3 @@ impl Keyboard {
         Ok(())
     }
 }
-

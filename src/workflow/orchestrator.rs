@@ -1,9 +1,12 @@
 use anyhow::Result;
-use log::{info, error, debug};
+use log::{debug, error, info};
 
-use crate::analysis::{circle_detector::CircleDetector, question_extractor::QuestionExtractor, QuestionContext, BoundingBox};
+use super::{symbol_pool::SymbolPool, Workflow};
+use crate::analysis::{
+    circle_detector::CircleDetector, question_extractor::QuestionExtractor, BoundingBox,
+    QuestionContext,
+};
 use crate::llm::{openai::OpenAI, LLMEngine};
-use super::{Workflow, symbol_pool::SymbolPool};
 
 /// Result from LLM analysis containing question, answer, and bounding boxes
 struct AnalysisResult {
@@ -25,9 +28,9 @@ impl Orchestrator {
         let mut symbol_pool = SymbolPool::new();
         // Load previous state (if any)
         let _ = symbol_pool.load();
-        
-        Self { 
-            workflow, 
+
+        Self {
+            workflow,
             llm,
             symbol_pool,
         }
@@ -60,9 +63,12 @@ impl Orchestrator {
                 return Ok(());
             }
             Some(result) => {
-                info!("Got Q&A - Question: {} | Answer: {}", result.question, result.answer);
+                info!(
+                    "Got Q&A - Question: {} | Answer: {}",
+                    result.question, result.answer
+                );
                 self.workflow.show_progress("Rendering...")?;
-                
+
                 if let Err(e) = self.render_answer(&result) {
                     error!("Error rendering answer: {}", e);
                     self.workflow.clear_progress()?;
@@ -82,7 +88,10 @@ impl Orchestrator {
     /// 3. Generates answer
     /// 4. Provides bounding boxes
     /// Returns None if no outline/question found, or Some((question, answer, question_box, outline_box))
-    fn analyze_and_answer_single_call(&mut self, screenshot_base64: &str) -> Result<Option<AnalysisResult>> {
+    fn analyze_and_answer_single_call(
+        &mut self,
+        screenshot_base64: &str,
+    ) -> Result<Option<AnalysisResult>> {
         info!("Sending single LLM call for analysis + answer");
 
         self.llm.clear_content();
@@ -129,7 +138,11 @@ impl Orchestrator {
         }
 
         let header = parts[0];
-        let answer_text = parts[1].trim().strip_prefix("ANSWER:").unwrap_or(parts[1]).trim();
+        let answer_text = parts[1]
+            .trim()
+            .strip_prefix("ANSWER:")
+            .unwrap_or(parts[1])
+            .trim();
 
         // Extract question text
         let question_text = Self::extract_field(header, "QUESTION:");
@@ -192,8 +205,10 @@ impl Orchestrator {
         // Step 1: Erase question text if we have its location
         // IMPORTANT: Only erase question, preserve outline
         if let Some(question_box) = &result.question_box {
-            info!("Erasing question at ({}, {}) size {}x{}", 
-                question_box.x, question_box.y, question_box.width, question_box.height);
+            info!(
+                "Erasing question at ({}, {}) size {}x{}",
+                question_box.x, question_box.y, question_box.width, question_box.height
+            );
             self.workflow.show_progress("Erasing question...")?;
             self.workflow.erase_region(question_box)?;
         } else {
@@ -205,34 +220,32 @@ impl Orchestrator {
         let symbol_x = if let Some(qbox) = &result.question_box {
             qbox.x + qbox.width / 2
         } else {
-            50  // Default location if no box
+            50 // Default location if no box
         };
         let symbol_y = if let Some(qbox) = &result.question_box {
             qbox.y + qbox.height / 2
         } else {
-            950  // Default location if no box
+            950 // Default location if no box
         };
         self.draw_symbol_on_page(&symbol, symbol_x, symbol_y)?;
-        
+
         // Step 3: Create new page to the right
         self.workflow.show_progress("Creating page...")?;
         self.workflow.create_new_page_right()?;
-        
+
         // Step 4: Render Q&A on new page with matching symbol
         self.workflow.clear_progress()?;
-        
+
         let formatted_output = format!(
             "{} Q: {}\n\nA: {}\n\n---\n\n",
-            symbol,
-            result.question,
-            result.answer
+            symbol, result.question, result.answer
         );
-        
+
         self.workflow.render_text(&formatted_output)?;
-        
+
         // Step 5: Navigate back to original page to preserve reading context
         self.workflow.navigate_to_previous_page()?;
-        
+
         info!("Q&A rendered successfully with symbol {}", symbol);
         Ok(())
     }
@@ -242,17 +255,17 @@ impl Orchestrator {
         // TODO: Use proper symbol rendering from symbol_pool
         // For now, draw the symbol as text or use simple marker
         info!("Drawing symbol {} at ({}, {})", symbol, x, y);
-        
+
         // Use the workflow's draw_symbol method
         self.workflow.draw_symbol(x, y, symbol)?;
-        
+
         Ok(())
     }
 
     /// Run the main loop
     pub fn run_loop(&mut self) -> Result<()> {
         info!("Starting Reader Buddy main loop");
-        
+
         loop {
             match self.run_iteration() {
                 Ok(_) => info!("Iteration completed successfully"),
@@ -265,4 +278,3 @@ impl Orchestrator {
         }
     }
 }
-

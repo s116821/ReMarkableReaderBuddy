@@ -4,7 +4,7 @@ pub mod renderer;
 pub mod symbol_pool;
 
 use anyhow::Result;
-use log::{info, debug};
+use log::{debug, info};
 
 use crate::analysis::QuestionContext;
 use crate::device::{keyboard::Keyboard, pen::Pen, screenshot::Screenshot, touch::Touch};
@@ -57,17 +57,19 @@ impl Workflow {
 
     /// Erase a region on the screen (draw white rectangle)
     pub fn erase_region(&mut self, region: &crate::analysis::BoundingBox) -> Result<()> {
-        info!("Erasing region at ({}, {}) size {}x{}", 
-            region.x, region.y, region.width, region.height);
-        
+        info!(
+            "Erasing region at ({}, {}) size {}x{}",
+            region.x, region.y, region.width, region.height
+        );
+
         // Draw a filled white rectangle to erase the region
         let top_left = (region.x, region.y);
         let bottom_right = (region.x + region.width, region.y + region.height);
-        
+
         // TODO: Need to implement white pen color or use fill approach
         // For now, this will draw in the default pen color
         self.pen.draw_rectangle(top_left, bottom_right, true)?;
-        
+
         Ok(())
     }
 
@@ -76,13 +78,13 @@ impl Workflow {
     /// For now, draws a simple geometric marker
     pub fn draw_symbol(&mut self, x: i32, y: i32, symbol: &str) -> Result<()> {
         info!("Drawing reference symbol '{}' at ({}, {})", symbol, x, y);
-        
+
         // TODO: Implement proper symbol rendering:
         // - Create a pool of reference markers: ①②③④⑤⑥⑦⑧⑨⑩
         // - Track which symbol was used (persist across triggers)
         // - Cycle through the pool
         // - Render as small, clear glyphs
-        
+
         // Temporary implementation: Draw a small circle as a marker
         let radius = 10;
         for angle in (0..360).step_by(10) {
@@ -95,7 +97,7 @@ impl Workflow {
             let y2 = y + (radius as f32 * next_rad.sin()) as i32;
             self.pen.draw_line_screen((x1, y1), (x2, y2))?;
         }
-        
+
         Ok(())
     }
 
@@ -135,4 +137,3 @@ impl Workflow {
         Ok(())
     }
 }
-

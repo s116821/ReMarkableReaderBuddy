@@ -12,7 +12,10 @@ impl QuestionExtractor {
         circled_region: &BoundingBox,
         full_screenshot_base64: &str,
     ) -> Result<QuestionContext> {
-        debug!("Extracting question for circled region at ({}, {})", circled_region.x, circled_region.y);
+        debug!(
+            "Extracting question for circled region at ({}, {})",
+            circled_region.x, circled_region.y
+        );
 
         // TODO: Implement LLM-based question extraction
         // For now, return a placeholder
@@ -37,7 +40,7 @@ impl QuestionExtractor {
         // Prompt: "Look at this image. There is a circled region near coordinates (x, y).
         //          Find the handwritten question text closest to this circle.
         //          Return the question text and its approximate location."
-        
+
         info!("LLM-based question extraction not yet fully implemented");
         Ok(("Placeholder question".to_string(), None))
     }
@@ -53,9 +56,8 @@ impl QuestionExtractor {
         // - Distance from circle center
         // - Text orientation (horizontal vs vertical)
         // - Typical reading patterns (left-to-right, top-to-bottom)
-        
+
         debug!("Finding nearest text region to circle");
         None
     }
 }
-

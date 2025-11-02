@@ -60,13 +60,13 @@ impl SymbolPool {
     pub fn next_symbol(&mut self) -> Result<String> {
         let symbol = self.symbols[self.current_index].clone();
         debug!("Using symbol: {} (index {})", symbol, self.current_index);
-        
+
         // Advance to next symbol
         self.current_index = (self.current_index + 1) % self.symbols.len();
-        
+
         // Save state for persistence across app restarts
         self.save()?;
-        
+
         Ok(symbol)
     }
 
@@ -83,15 +83,18 @@ impl SymbolPool {
         // 1. Use font rendering (if system fonts available)
         // 2. Pre-rendered bitmap glyphs
         // 3. SVG paths for each symbol
-        
+
         // For now, return a simple pattern
-        debug!("Converting symbol '{}' to {}x{} bitmap (placeholder)", symbol, size, size);
-        
+        debug!(
+            "Converting symbol '{}' to {}x{} bitmap (placeholder)",
+            symbol, size, size
+        );
+
         // Placeholder: return a simple circle pattern
         let mut bitmap = vec![vec![false; size as usize]; size as usize];
         let center = size as i32 / 2;
         let radius = (size as f32 * 0.4) as i32;
-        
+
         for y in 0..size as i32 {
             for x in 0..size as i32 {
                 let dx = x - center;
@@ -102,7 +105,7 @@ impl SymbolPool {
                 }
             }
         }
-        
+
         bitmap
     }
 }
@@ -112,4 +115,3 @@ impl Default for SymbolPool {
         Self::new()
     }
 }
-

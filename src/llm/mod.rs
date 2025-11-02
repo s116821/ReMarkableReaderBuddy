@@ -9,4 +9,3 @@ pub trait LLMEngine {
     fn clear_content(&mut self);
     fn execute(&mut self) -> Result<String>;
 }
-

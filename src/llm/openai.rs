@@ -15,7 +15,7 @@ pub struct OpenAI {
 impl OpenAI {
     pub fn new(model: String, api_key: String, base_url: Option<String>) -> Self {
         let base_url = base_url.unwrap_or_else(|| "https://api.openai.com".to_string());
-        
+
         Self {
             model,
             base_url,
@@ -29,7 +29,7 @@ impl OpenAI {
             .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY environment variable not set"))?;
         let base_url = std::env::var("OPENAI_BASE_URL").ok();
         let model = model.unwrap_or_else(|| "gpt-4o".to_string());
-        
+
         Ok(Self::new(model, api_key, base_url))
     }
 
@@ -98,4 +98,3 @@ impl LLMEngine for OpenAI {
         Ok(response_text)
     }
 }
-
