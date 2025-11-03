@@ -10,7 +10,7 @@ struct AnalysisResult {
     question: String,
     answer: String,
     question_box: Option<BoundingBox>,
-    outline_box: Option<BoundingBox>,
+    _outline_box: Option<BoundingBox>,
 }
 
 /// High-level orchestrator for the complete workflow
@@ -84,6 +84,7 @@ impl Orchestrator {
     /// 2. Extracts handwritten question
     /// 3. Generates answer
     /// 4. Provides bounding boxes
+    ///
     /// Returns None if no outline/question found, or Some((question, answer, question_box, outline_box))
     fn analyze_and_answer_single_call(
         &mut self,
@@ -130,7 +131,7 @@ impl Orchestrator {
                 question: "What does this mean?".to_string(),
                 answer: response,
                 question_box: None,
-                outline_box: None,
+                _outline_box: None,
             }));
         }
 
@@ -156,7 +157,7 @@ impl Orchestrator {
             question: question_text,
             answer: answer_text.to_string(),
             question_box,
-            outline_box,
+            _outline_box: outline_box,
         }))
     }
 

@@ -37,7 +37,7 @@ impl Workflow {
     pub fn capture_screenshot(&mut self) -> Result<String> {
         info!("Capturing screenshot...");
         self.screenshot.take_screenshot()?;
-        Ok(self.screenshot.base64()?)
+        self.screenshot.base64()
     }
 
     /// Show progress indicator to user
@@ -89,7 +89,7 @@ impl Workflow {
             for (dx, &pixel) in row.iter().enumerate() {
                 let px = offset_x + dx as i32;
                 let py = offset_y + dy as i32;
-                if px >= 0 && px < 768 && py >= 0 && py < 1024 {
+                if (0..768).contains(&px) && (0..1024).contains(&py) {
                     positioned_bitmap[py as usize][px as usize] = pixel;
                 }
             }
