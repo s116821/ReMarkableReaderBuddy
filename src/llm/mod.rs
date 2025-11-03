@@ -1,7 +1,6 @@
 pub mod openai;
 
 use anyhow::Result;
-use serde_json::Value as JsonValue;
 
 pub trait LLMEngine {
     fn add_text_content(&mut self, text: &str);

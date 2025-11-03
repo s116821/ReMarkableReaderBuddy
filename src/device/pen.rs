@@ -1,9 +1,14 @@
 use anyhow::Result;
-use evdev::EventType as EvdevEventType;
-use evdev::{Device, InputEvent};
 use log::info;
+
+#[cfg(target_os = "linux")]
 use std::thread::sleep;
+
+#[cfg(target_os = "linux")]
 use std::time::Duration;
+
+#[cfg(target_os = "linux")]
+use evdev::{EventType as EvdevEventType, Device, InputEvent};
 
 use super::DeviceModel;
 
@@ -11,11 +16,18 @@ use super::DeviceModel;
 const VIRTUAL_WIDTH: u32 = 768;
 const VIRTUAL_HEIGHT: u32 = 1024;
 
+#[cfg(target_os = "linux")]
 pub struct Pen {
     device: Option<Device>,
     device_model: DeviceModel,
 }
 
+#[cfg(not(target_os = "linux"))]
+pub struct Pen {
+    device_model: DeviceModel,
+}
+
+#[cfg(target_os = "linux")]
 impl Pen {
     pub fn new(no_draw: bool) -> Self {
         let device_model = DeviceModel::detect();
@@ -142,6 +154,60 @@ impl Pen {
         Ok(())
     }
 
+    /// Activate eraser tool (simulates flipping the stylus to eraser end)
+    pub fn eraser_down(&mut self) -> Result<()> {
+        if let Some(device) = &mut self.device {
+            device.send_events(&[
+                InputEvent::new(EvdevEventType::KEY.0, 321, 1), // BTN_TOOL_RUBBER (eraser)
+                InputEvent::new(EvdevEventType::KEY.0, 330, 1), // BTN_TOUCH
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 24, 2630), // ABS_PRESSURE (max pressure)
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 25, 0),    // ABS_DISTANCE
+                InputEvent::new(EvdevEventType::SYNCHRONIZATION.0, 0, 0), // SYN_REPORT
+            ])?;
+        }
+        Ok(())
+    }
+
+    /// Deactivate eraser tool
+    pub fn eraser_up(&mut self) -> Result<()> {
+        if let Some(device) = &mut self.device {
+            device.send_events(&[
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 24, 0), // ABS_PRESSURE
+                InputEvent::new(EvdevEventType::ABSOLUTE.0, 25, 100), // ABS_DISTANCE
+                InputEvent::new(EvdevEventType::KEY.0, 330, 0),     // BTN_TOUCH
+                InputEvent::new(EvdevEventType::KEY.0, 321, 0),     // BTN_TOOL_RUBBER
+                InputEvent::new(EvdevEventType::SYNCHRONIZATION.0, 0, 0), // SYN_REPORT
+            ])?;
+        }
+        Ok(())
+    }
+
+    /// Erase content in a rectangular region by using the eraser tool
+    pub fn erase_rectangle(
+        &mut self,
+        top_left: (i32, i32),
+        bottom_right: (i32, i32),
+    ) -> Result<()> {
+        info!(
+            "Erasing rectangle from ({}, {}) to ({}, {})",
+            top_left.0, top_left.1, bottom_right.0, bottom_right.1
+        );
+
+        let (x1, y1) = top_left;
+        let (x2, y2) = bottom_right;
+
+        // Erase by filling the rectangle with eraser strokes
+        for y in y1..=y2 {
+            self.eraser_up()?;
+            self.goto_xy_virtual((x1, y))?;
+            self.eraser_down()?;
+            self.goto_xy_virtual((x2, y))?;
+        }
+        self.eraser_up()?;
+
+        Ok(())
+    }
+
     pub fn goto_xy_virtual(&mut self, point: (i32, i32)) -> Result<()> {
         self.goto_xy(self.virtual_to_input(point))
     }
@@ -190,5 +256,46 @@ impl Pen {
                 (x_input, y_input)
             }
         }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+impl Pen {
+    pub fn new(_no_draw: bool) -> Self {
+        let device_model = DeviceModel::detect();
+        info!("Pen using device model: {}", device_model.name());
+
+        Self {
+            device_model,
+        }
+    }
+
+    pub fn draw_line_screen(&mut self, _p1: (i32, i32), _p2: (i32, i32)) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn draw_line(&mut self, _p1: (i32, i32), _p2: (i32, i32)) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn draw_bitmap(&mut self, _bitmap: &[Vec<bool>]) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn draw_rectangle(
+        &mut self,
+        _top_left: (i32, i32),
+        _bottom_right: (i32, i32),
+        _fill: bool,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn erase_rectangle(
+        &mut self,
+        _top_left: (i32, i32),
+        _bottom_right: (i32, i32),
+    ) -> Result<()> {
+        Ok(())
     }
 }

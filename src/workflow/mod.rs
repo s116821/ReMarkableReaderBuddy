@@ -1,14 +1,11 @@
 pub mod orchestrator;
 pub mod page_manager;
-pub mod renderer;
 pub mod symbol_pool;
 
 use anyhow::Result;
-use log::{debug, info};
+use log::info;
 
-use crate::analysis::QuestionContext;
 use crate::device::{keyboard::Keyboard, pen::Pen, screenshot::Screenshot, touch::Touch};
-use crate::llm::LLMEngine;
 
 /// Main workflow coordinator
 pub struct Workflow {
@@ -55,48 +52,50 @@ impl Workflow {
         Ok(())
     }
 
-    /// Erase a region on the screen (draw white rectangle)
+    /// Erase a region on the screen using the eraser tool
     pub fn erase_region(&mut self, region: &crate::analysis::BoundingBox) -> Result<()> {
         info!(
             "Erasing region at ({}, {}) size {}x{}",
             region.x, region.y, region.width, region.height
         );
 
-        // Draw a filled white rectangle to erase the region
         let top_left = (region.x, region.y);
         let bottom_right = (region.x + region.width, region.y + region.height);
 
-        // TODO: Need to implement white pen color or use fill approach
-        // For now, this will draw in the default pen color
-        self.pen.draw_rectangle(top_left, bottom_right, true)?;
+        // Use the eraser tool to erase the rectangle
+        self.pen.erase_rectangle(top_left, bottom_right)?;
 
         Ok(())
     }
 
-    /// Draw a reference symbol at a location
-    /// TODO: Implement symbol pool with cycling (①②③④⑤⑥⑦⑧⑨⑩)
-    /// For now, draws a simple geometric marker
+    /// Draw a reference symbol at a location using bitmap rendering
     pub fn draw_symbol(&mut self, x: i32, y: i32, symbol: &str) -> Result<()> {
         info!("Drawing reference symbol '{}' at ({}, {})", symbol, x, y);
 
-        // TODO: Implement proper symbol rendering:
-        // - Create a pool of reference markers: ①②③④⑤⑥⑦⑧⑨⑩
-        // - Track which symbol was used (persist across triggers)
-        // - Cycle through the pool
-        // - Render as small, clear glyphs
+        // Convert symbol to bitmap
+        let size = 20; // Symbol size in pixels
+        let bitmap = symbol_pool::SymbolPool::symbol_to_bitmap(symbol, size);
 
-        // Temporary implementation: Draw a small circle as a marker
-        let radius = 10;
-        for angle in (0..360).step_by(10) {
-            let rad = (angle as f32).to_radians();
-            let x1 = x + (radius as f32 * rad.cos()) as i32;
-            let y1 = y + (radius as f32 * rad.sin()) as i32;
-            let next_angle = angle + 10;
-            let next_rad = (next_angle as f32).to_radians();
-            let x2 = x + (radius as f32 * next_rad.cos()) as i32;
-            let y2 = y + (radius as f32 * next_rad.sin()) as i32;
-            self.pen.draw_line_screen((x1, y1), (x2, y2))?;
+        // Draw the bitmap at the specified location
+        // Note: This draws the full bitmap starting at (x, y)
+        // For centered placement, we'd offset by -size/2
+        let offset_x = x - (size as i32 / 2);
+        let offset_y = y - (size as i32 / 2);
+
+        // Create a positioned bitmap by building a temporary full-size bitmap
+        // This is not optimal but works for MVP
+        let mut positioned_bitmap = vec![vec![false; 768]; 1024];
+        for (dy, row) in bitmap.iter().enumerate() {
+            for (dx, &pixel) in row.iter().enumerate() {
+                let px = offset_x + dx as i32;
+                let py = offset_y + dy as i32;
+                if px >= 0 && px < 768 && py >= 0 && py < 1024 {
+                    positioned_bitmap[py as usize][px as usize] = pixel;
+                }
+            }
         }
+
+        self.pen.draw_bitmap(&positioned_bitmap)?;
 
         Ok(())
     }

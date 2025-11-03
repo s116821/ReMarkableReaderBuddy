@@ -4,7 +4,7 @@ pub mod llm;
 pub mod workflow;
 
 // Re-export commonly used types
-pub use analysis::{BoundingBox, QuestionContext};
+pub use analysis::BoundingBox;
 pub use device::{
     keyboard::Keyboard,
     pen::Pen,

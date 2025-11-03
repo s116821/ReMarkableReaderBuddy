@@ -2,10 +2,7 @@ use anyhow::Result;
 use log::{debug, error, info};
 
 use super::{symbol_pool::SymbolPool, Workflow};
-use crate::analysis::{
-    circle_detector::CircleDetector, question_extractor::QuestionExtractor, BoundingBox,
-    QuestionContext,
-};
+use crate::analysis::BoundingBox;
 use crate::llm::{openai::OpenAI, LLMEngine};
 
 /// Result from LLM analysis containing question, answer, and bounding boxes
@@ -252,11 +249,9 @@ impl Orchestrator {
 
     /// Draw a symbol on the current page
     fn draw_symbol_on_page(&mut self, symbol: &str, x: i32, y: i32) -> Result<()> {
-        // TODO: Use proper symbol rendering from symbol_pool
-        // For now, draw the symbol as text or use simple marker
         info!("Drawing symbol {} at ({}, {})", symbol, x, y);
 
-        // Use the workflow's draw_symbol method
+        // Use the workflow's draw_symbol method which converts to bitmap and draws
         self.workflow.draw_symbol(x, y, symbol)?;
 
         Ok(())

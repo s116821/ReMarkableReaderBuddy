@@ -1,10 +1,17 @@
 use anyhow::Result;
-use evdev::EventType as EvdevEventType;
-use evdev::{Device, InputEvent};
-use log::{debug, info};
+use log::info;
 
+#[cfg(target_os = "linux")]
+use log::debug;
+
+#[cfg(target_os = "linux")]
 use std::thread::sleep;
+
+#[cfg(target_os = "linux")]
 use std::time::Duration;
+
+#[cfg(target_os = "linux")]
+use evdev::{EventType as EvdevEventType, Device, InputEvent};
 
 use super::DeviceModel;
 
@@ -45,12 +52,20 @@ const ABS_MT_POSITION_Y: u16 = 54;
 const ABS_MT_TRACKING_ID: u16 = 57;
 const ABS_MT_PRESSURE: u16 = 58;
 
+#[cfg(target_os = "linux")]
 pub struct Touch {
     device: Option<Device>,
     device_model: DeviceModel,
     trigger_corner: TriggerCorner,
 }
 
+#[cfg(not(target_os = "linux"))]
+pub struct Touch {
+    device_model: DeviceModel,
+    trigger_corner: TriggerCorner,
+}
+
+#[cfg(target_os = "linux")]
 impl Touch {
     pub fn new(no_touch: bool, trigger_corner: TriggerCorner) -> Self {
         let device_model = DeviceModel::detect();
@@ -229,5 +244,38 @@ impl Touch {
                 (x_input, y_input)
             }
         }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+impl Touch {
+    pub fn new(_no_touch: bool, trigger_corner: TriggerCorner) -> Self {
+        let device_model = DeviceModel::detect();
+        info!("Touch using device model: {}", device_model.name());
+
+        Self {
+            device_model,
+            trigger_corner,
+        }
+    }
+
+    pub fn wait_for_trigger(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn touch_start(&mut self, _xy: (i32, i32)) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn touch_stop(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn goto_xy(&mut self, _xy: (i32, i32)) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn tap_middle_bottom(&mut self) -> Result<()> {
+        Ok(())
     }
 }

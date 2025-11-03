@@ -1,21 +1,35 @@
 use anyhow::Result;
-use log::debug;
 
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
+
+#[cfg(target_os = "linux")]
 use std::{thread, time};
 
+#[cfg(target_os = "linux")]
+use log::debug;
+
+#[cfg(target_os = "linux")]
 use evdev::{
-    uinput::VirtualDevice, AttributeSet, EventType as EvdevEventType, InputEvent,
-    KeyCode as EvdevKey,
+    uinput::VirtualDeviceBuilder, AttributeSet, EventType as EvdevEventType, InputEvent,
+    Key as EvdevKey,
 };
 
+#[cfg(target_os = "linux")]
 pub struct Keyboard {
-    device: Option<VirtualDevice>,
+    device: Option<evdev::uinput::VirtualDevice>,
     key_map: HashMap<char, (EvdevKey, bool)>,
     progress_count: u32,
     no_draw_progress: bool,
 }
 
+#[cfg(not(target_os = "linux"))]
+pub struct Keyboard {
+    progress_count: u32,
+    no_draw_progress: bool,
+}
+
+#[cfg(target_os = "linux")]
 impl Keyboard {
     pub fn new(no_draw: bool, no_draw_progress: bool) -> Self {
         let device = if no_draw {
@@ -32,9 +46,9 @@ impl Keyboard {
         }
     }
 
-    fn create_virtual_device() -> VirtualDevice {
+    fn create_virtual_device() -> evdev::uinput::VirtualDevice {
         debug!("Creating virtual keyboard");
-        let mut keys = AttributeSet::new();
+        let mut keys = AttributeSet::<EvdevKey>::new();
 
         keys.insert(EvdevKey::KEY_A);
         keys.insert(EvdevKey::KEY_B);
@@ -97,7 +111,7 @@ impl Keyboard {
         keys.insert(EvdevKey::KEY_LEFTCTRL);
         keys.insert(EvdevKey::KEY_LEFTALT);
 
-        VirtualDevice::builder()
+        VirtualDeviceBuilder::new()
             .unwrap()
             .name("Virtual Keyboard")
             .with_keys(&keys)
@@ -318,6 +332,40 @@ impl Keyboard {
         // Send a backspace for each progress
         for _ in 0..self.progress_count {
             self.string_to_keypresses("\x08")?;
+        }
+        self.progress_count = 0;
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+impl Keyboard {
+    pub fn new(_no_draw: bool, no_draw_progress: bool) -> Self {
+        Self {
+            progress_count: 0,
+            no_draw_progress,
+        }
+    }
+
+    pub fn string_to_keypresses(&mut self, _input: &str) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn key_cmd_body(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn progress(&mut self, note: &str) -> Result<()> {
+        if self.no_draw_progress {
+            return Ok(());
+        }
+        self.progress_count += note.len() as u32;
+        Ok(())
+    }
+
+    pub fn progress_end(&mut self) -> Result<()> {
+        if self.no_draw_progress {
+            return Ok(());
         }
         self.progress_count = 0;
         Ok(())

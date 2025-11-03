@@ -50,7 +50,7 @@ impl PageManager {
 
         // End at left side, same height
         let end_x = 100;
-        let end_y = 512;
+        let _end_y = 512;
 
         // Perform swipe with multiple touch points for smooth gesture
         touch.touch_start((start_x, start_y))?;
@@ -81,7 +81,7 @@ impl PageManager {
 
         // End at right side, same height
         let end_x = 700;
-        let end_y = 512;
+        let _end_y = 512;
 
         // Perform swipe with multiple touch points for smooth gesture
         touch.touch_start((start_x, start_y))?;

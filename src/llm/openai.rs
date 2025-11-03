@@ -3,7 +3,6 @@ use anyhow::Result;
 use log::{debug, info};
 use serde_json::json;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
 
 pub struct OpenAI {
     model: String,

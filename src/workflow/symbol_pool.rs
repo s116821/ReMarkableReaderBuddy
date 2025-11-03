@@ -76,21 +76,22 @@ impl SymbolPool {
     }
 
     /// Convert symbol to bitmap for rendering
-    /// TODO: This is a placeholder - need proper glyph rendering
-    pub fn symbol_to_bitmap(symbol: &str, size: u32) -> Vec<Vec<bool>> {
-        // TODO: Implement proper symbol-to-bitmap conversion
-        // Options:
-        // 1. Use font rendering (if system fonts available)
-        // 2. Pre-rendered bitmap glyphs
-        // 3. SVG paths for each symbol
+    /// MVP: Uses simple circle pattern. Future enhancement: render actual Unicode glyphs
+    pub fn symbol_to_bitmap(_symbol: &str, size: u32) -> Vec<Vec<bool>> {
+        // TODO: Future enhancement - render actual Unicode circled numbers (①②③④⑤⑥⑦⑧⑨⑩)
+        // Options for future implementation:
+        // 1. Use font rendering with resvg (like ghostwriter does for SVG text)
+        // 2. Pre-rendered bitmap glyphs embedded in binary
+        // 3. SVG paths for each symbol converted to bitmaps
+        //
+        // For MVP: Simple circle marker works fine for visual reference
 
-        // For now, return a simple pattern
         debug!(
-            "Converting symbol '{}' to {}x{} bitmap (placeholder)",
-            symbol, size, size
+            "Converting symbol to {}x{} bitmap (simple circle for MVP)",
+            size, size
         );
 
-        // Placeholder: return a simple circle pattern
+        // Return a simple circle pattern
         let mut bitmap = vec![vec![false; size as usize]; size as usize];
         let center = size as i32 / 2;
         let radius = (size as f32 * 0.4) as i32;
