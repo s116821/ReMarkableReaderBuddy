@@ -54,7 +54,7 @@ rustup target add armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu
 
 #### Option 1: Download Pre-built Binary (Recommended)
 
-Download the latest release from the [Releases page](https://github.com/YOUR_USERNAME/ReMarkableReaderBuddy/releases):
+Download the latest release from the [Releases page](https://github.com/s116821/ReMarkableReaderBuddy/releases):
 
 ```bash
 # Extract the binary
@@ -164,12 +164,40 @@ pkill reader-buddy
 
 ## Development
 
+### Development Setup
+
+```bash
+# Install Rust toolchain (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install formatting and linting tools (usually included with Rust)
+rustup component add rustfmt clippy
+
+# Install cross-compilation tool
+cargo install cross --git https://github.com/cross-rs/cross
+
+# Add target architectures for reMarkable devices
+rustup target add armv7-unknown-linux-gnueabihf    # reMarkable 2
+rustup target add aarch64-unknown-linux-gnu         # reMarkable Paper Pro
+```
+
+### Common Development Tasks
+
 ```bash
 # Format code
 cargo fmt
 
+# Check formatting without making changes
+cargo fmt -- --check
+
 # Run linter
 cargo clippy
+
+# Run clippy with strict warnings
+cargo clippy -- -D warnings
+
+# Check that code compiles
+cargo check --all-targets --all-features
 
 # Build for reMarkable
 ./build.sh rm2    # or rmpp for Paper Pro
