@@ -8,7 +8,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
-use evdev::{EventType as EvdevEventType, Device, InputEvent};
+use evdev::{Device, EventType as EvdevEventType, InputEvent};
 
 use super::DeviceModel;
 
@@ -265,9 +265,7 @@ impl Pen {
         let device_model = DeviceModel::detect();
         info!("Pen using device model: {}", device_model.name());
 
-        Self {
-            device_model,
-        }
+        Self { device_model }
     }
 
     pub fn draw_line_screen(&mut self, _p1: (i32, i32), _p2: (i32, i32)) -> Result<()> {

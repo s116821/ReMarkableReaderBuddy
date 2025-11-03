@@ -11,8 +11,8 @@ use log::debug;
 
 #[cfg(target_os = "linux")]
 use evdev::{
-    uinput::VirtualDeviceBuilder, AttributeSet, EventType as EvdevEventType, InputEvent,
-    Key as EvdevKey,
+    uinput::VirtualDevice, AttributeSet, EventType as EvdevEventType, InputEvent,
+    KeyCode as EvdevKey,
 };
 
 #[cfg(target_os = "linux")]
@@ -111,7 +111,7 @@ impl Keyboard {
         keys.insert(EvdevKey::KEY_LEFTCTRL);
         keys.insert(EvdevKey::KEY_LEFTALT);
 
-        VirtualDeviceBuilder::new()
+        VirtualDevice::builder()
             .unwrap()
             .name("Virtual Keyboard")
             .with_keys(&keys)

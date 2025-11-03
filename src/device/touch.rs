@@ -11,7 +11,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
-use evdev::{EventType as EvdevEventType, Device, InputEvent};
+use evdev::{Device, EventType as EvdevEventType, InputEvent};
 
 use super::DeviceModel;
 
