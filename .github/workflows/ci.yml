@@ -12,7 +12,7 @@ on:
 
 jobs:
   check:
-    name: Check & Lint
+    name: Check Build & Lint
     runs-on: ubuntu-latest
     
     steps:
@@ -49,11 +49,14 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       
-      - name: Check build for reMarkable 2
-        run: cargo check --target=armv7-unknown-linux-gnueabihf
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
       
-      - name: Check build for reMarkable Paper Pro
-        run: cargo check --target=aarch64-unknown-linux-gnu
+      - name: Build for reMarkable 2
+        run: ./build.sh rm2
+      
+      - name: Build for reMarkable Paper Pro
+        run: ./build.sh rmpp
 
   test:
     name: Test
