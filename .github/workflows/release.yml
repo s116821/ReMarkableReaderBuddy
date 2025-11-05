@@ -103,7 +103,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.semantic-version.outputs.tag }}
-          name: Release ${{ needs.semantic-version.outputs.tag }}
+          name: ${{ needs.semantic-version.outputs.tag }}
           body: |
             ## ReMarkable Reader Buddy ${{ needs.semantic-version.outputs.tag }}
             
