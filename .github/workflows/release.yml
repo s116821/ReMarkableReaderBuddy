@@ -33,7 +33,7 @@ jobs:
       
       - name: MagDrago Rust Semver Action
         id: version
-        uses: s116821/MagDragoRustSemverAction@v0.1.0
+        uses: s116821/MagDragoRustSemverAction@v0.1.1
         with:
           source-globs: .versioning/source_globs.txt
           tag-scope: v
