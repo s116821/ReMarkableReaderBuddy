@@ -11,8 +11,6 @@ jobs:
   semantic-version:
     name: Semantic Versioning
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # Required for creating tags and pushing
     outputs:
       bump-kind: ${{ steps.version.outputs.bump-kind }}
       next-version: ${{ steps.version.outputs.next-version }}
@@ -23,6 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Fetch all history for proper semantic versioning
+          token: ${{ secrets.RELEASE_TOKEN }}  # Use PAT to bypass branch protection
       
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
@@ -88,12 +87,12 @@ jobs:
     needs: [semantic-version, build-release]
     runs-on: ubuntu-latest
     if: ${{ needs.semantic-version.outputs.bump-kind != 'none' }}
-    permissions:
-      contents: write  # Required for creating releases
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}  # Use PAT for consistency
       
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -136,5 +135,5 @@ jobs:
           draft: false
           prerelease: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
