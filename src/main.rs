@@ -53,6 +53,10 @@ pub struct Args {
     /// Log level (error, warn, info, debug, trace)
     #[arg(long, default_value = "info")]
     log_level: String,
+
+    /// Enable debug dumps of screenshots and masks to /tmp for troubleshooting
+    #[arg(long)]
+    debug_dump: bool,
 }
 
 fn main() -> Result<()> {
@@ -74,7 +78,7 @@ fn main() -> Result<()> {
     let trigger_corner = TriggerCorner::from_string(&args.trigger_corner)?;
 
     // Initialize workflow
-    let workflow = Workflow::new(args.no_draw, trigger_corner)?;
+    let workflow = Workflow::new(args.no_draw, trigger_corner, args.debug_dump)?;
 
     // Give time for the virtual devices to be initialized
     sleep(Duration::from_millis(1000));

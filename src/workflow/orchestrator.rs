@@ -11,6 +11,7 @@ struct AnalysisResult {
     answer: String,
     question_box: Option<BoundingBox>,
     _outline_box: Option<BoundingBox>,
+    screenshot_data: Vec<u8>, // PNG data for downstream processing
 }
 
 /// High-level orchestrator for the complete workflow
@@ -43,14 +44,14 @@ impl Orchestrator {
         self.workflow.show_progress("Processing...")?;
 
         // Step 2: Capture screenshot
-        let screenshot_base64 = self.workflow.capture_screenshot()?;
+        let (screenshot_base64, screenshot_png_data) = self.workflow.capture_screenshot_with_data()?;
         self.workflow.show_progress("Analyzing...")?;
 
         // Step 3: Single LLM call does everything:
         // - Detect outlined region
         // - Extract question text
         // - Generate answer
-        let result = self.analyze_and_answer_single_call(&screenshot_base64)?;
+        let result = self.analyze_and_answer_single_call(&screenshot_base64, screenshot_png_data)?;
 
         match result {
             None => {
@@ -89,6 +90,7 @@ impl Orchestrator {
     fn analyze_and_answer_single_call(
         &mut self,
         screenshot_base64: &str,
+        screenshot_png_data: Vec<u8>,
     ) -> Result<Option<AnalysisResult>> {
         info!("Sending single LLM call for analysis + answer");
 
@@ -132,6 +134,7 @@ impl Orchestrator {
                 answer: response,
                 question_box: None,
                 _outline_box: None,
+                screenshot_data: screenshot_png_data,
             }));
         }
 
@@ -158,6 +161,7 @@ impl Orchestrator {
             answer: answer_text.to_string(),
             question_box,
             _outline_box: outline_box,
+            screenshot_data: screenshot_png_data,
         }))
     }
 
@@ -203,12 +207,32 @@ impl Orchestrator {
         // Step 1: Erase question text if we have its location
         // IMPORTANT: Only erase question, preserve outline
         if let Some(question_box) = &result.question_box {
+            // Clamp coordinates to virtual workspace (768x1024)
+            let clamped_x = question_box.x.max(0).min(768 - question_box.width.max(1));
+            let clamped_y = question_box.y.max(0).min(1024 - question_box.height.max(1));
+            let clamped_width = question_box.width.max(1).min(768 - clamped_x);
+            let clamped_height = question_box.height.max(1).min(1024 - clamped_y);
+            
+            debug!(
+                "Original question box: ({}, {}) size {}x{} -> Clamped: ({}, {}) size {}x{}",
+                question_box.x, question_box.y, question_box.width, question_box.height,
+                clamped_x, clamped_y, clamped_width, clamped_height
+            );
+            
             info!(
                 "Erasing question at ({}, {}) size {}x{}",
-                question_box.x, question_box.y, question_box.width, question_box.height
+                clamped_x, clamped_y, clamped_width, clamped_height
             );
+            
+            let clamped_box = BoundingBox {
+                x: clamped_x,
+                y: clamped_y,
+                width: clamped_width,
+                height: clamped_height,
+            };
+            
             self.workflow.show_progress("Erasing question...")?;
-            self.workflow.erase_region(question_box)?;
+            self.workflow.erase_region_smart(&clamped_box, &result.screenshot_data)?;
         } else {
             debug!("No question bounding box provided, skipping erasure");
         }
@@ -216,23 +240,51 @@ impl Orchestrator {
         // Step 2: Draw symbol on current page (where question was)
         self.workflow.show_progress("Marking original...")?;
         let symbol_x = if let Some(qbox) = &result.question_box {
-            qbox.x + qbox.width / 2
+            (qbox.x + qbox.width / 2).max(0).min(767)
         } else {
             50 // Default location if no box
         };
         let symbol_y = if let Some(qbox) = &result.question_box {
-            qbox.y + qbox.height / 2
+            (qbox.y + qbox.height / 2).max(0).min(1023)
         } else {
             950 // Default location if no box
         };
+        debug!("Symbol placement at virtual coordinates: ({}, {})", symbol_x, symbol_y);
         self.draw_symbol_on_page(&symbol, symbol_x, symbol_y)?;
+        
+        // Allow e-ink display to settle before navigation
+        std::thread::sleep(std::time::Duration::from_millis(500));
 
-        // Step 3: Create new page to the right
-        self.workflow.show_progress("Creating page...")?;
-        self.workflow.create_new_page_right()?;
-
-        // Step 4: Render Q&A on new page with matching symbol
+        // Step 3: Check if answer page already exists, or create new one
+        self.workflow.show_progress("Checking for answer page...")?;
+        let needs_new_page = !self.workflow.check_if_next_page_is_answer_page()?;
+        
+        if needs_new_page {
+            info!("No answer page found, creating new one");
+            self.workflow.show_progress("Creating page...")?;
+            self.workflow.create_new_page_right()?;
+            
+            // Wait for page to be fully created and active
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            
+            // Add header to mark this as an answer page
+            self.workflow.clear_progress()?;
+            self.workflow.get_keyboard_mut().key_cmd_body()?;
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            self.workflow.render_text("=== Reader Buddy Answers ===\n\n")?;
+        } else {
+            info!("Reusing existing answer page");
+            self.workflow.show_progress("Using existing page...")?;
+            self.workflow.navigate_to_next_page()?;
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        
+        // Step 4: Render Q&A on answer page with matching symbol
         self.workflow.clear_progress()?;
+        
+        // Ensure keyboard is in body text mode before typing
+        self.workflow.get_keyboard_mut().key_cmd_body()?;
+        std::thread::sleep(std::time::Duration::from_millis(200));
 
         let formatted_output = format!(
             "{} Q: {}\n\nA: {}\n\n---\n\n",

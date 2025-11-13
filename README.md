@@ -19,11 +19,13 @@ An AI-powered reading assistant for the reMarkable tablet that watches for circl
 3. **Trigger**: Touch the **lower-right corner** of your reMarkable screen with your hand
 4. **Capture**: The app takes a screenshot of your current page
 5. **AI Magic**: Single ChatGPT vision call detects outline, reads question, and generates answer (all in one!)
-6. **Create Page**: Inserts a new blank page after the current one
-7. **Render**: Displays the question and answer on the new page
+6. **Smart Page Management**: 
+   - First question: Creates a new page with "=== Reader Buddy Answers ===" header
+   - Subsequent questions from same page: Reuses existing answer page, appending below previous answers
+7. **Render**: Displays the question and answer on the answer page
 8. **Mark & Link**: Erases the original question (but leaves the outline intact), places a reference symbol (①, ②, ③, etc.) on both pages to link them
 
-**Note**: Processes one outline-question pair per trigger. Future versions may support multiple pairs in a single session.
+**Note**: Processes one outline-question pair per trigger. Multiple questions from the same page will share the same answer page automatically.
 
 ## Installation
 
@@ -117,6 +119,7 @@ Options:
   --save-screenshot <FILE>  Save screenshot to file
   --trigger-corner <CORNER> Trigger corner: UR, UL, LR, LL [default: LR]
   --log-level <LEVEL>       Log level [default: info]
+  --debug-dump              Save debug images to /tmp for troubleshooting
   -h, --help                Print help
   -V, --version             Print version
 ```
@@ -227,14 +230,107 @@ Set the environment variable: `export OPENAI_API_KEY=your-key`
 - The trigger zone is 68x68 pixels in the specified corner
 - Try touching and holding for a moment before releasing
 
+### Question not erasing completely
+The app uses **smart erasure** that detects ink pixels to avoid erasing too much. If the question isn't fully erased:
+- The LLM's bounding box might be slightly off - this is a known limitation
+- Use `--debug-dump` to save diagnostic images to `/tmp/` showing what regions were detected
+- Check `/tmp/reader-buddy-erase-mask-*.png` to see the detected ink regions (highlighted in yellow)
+- Try writing questions more clearly and in a consistent size
+
+### Answer not appearing on new page
+If the answer doesn't render:
+- Check that a new page was actually created (manually swipe right to verify)
+- Enable debug logging: `--log-level debug` to see detailed execution flow
+- The app now uses xochitl's native menu system to create pages, which is more reliable than gesture emulation
+- If pages aren't being created, check the logs for errors during page creation
+
+### Debug Mode
+Enable debug dumps to troubleshoot rendering issues:
+```bash
+./reader-buddy --debug-dump --log-level debug
+```
+
+This will save to `/tmp/` on the reMarkable:
+- `reader-buddy-screenshot-*.png` - Original screenshots captured
+- `reader-buddy-erase-mask-*.png` - Visual overlay showing detected question regions (red box) and ink pixels to erase (yellow)
+
+**Copying debug files to your computer:**
+
+On Windows (PowerShell):
+```powershell
+# Copy all debug images from reMarkable to current directory
+scp root@10.11.99.1:/tmp/reader-buddy-*.png .
+
+# Or copy to a specific folder
+scp root@10.11.99.1:/tmp/reader-buddy-*.png C:\path\to\debug\folder\
+```
+
+On Linux/Mac:
+```bash
+# Copy all debug images from reMarkable to current directory
+scp root@10.11.99.1:/tmp/reader-buddy-*.png .
+
+# Or copy to a specific folder
+scp root@10.11.99.1:/tmp/reader-buddy-*.png ~/debug/
+```
+
+Replace `10.11.99.1` with your reMarkable's IP address. You can find the IP address in **Settings > Help > Copyrights and licenses** at the bottom.
+
+## Cleanup and Uninstall
+
+### Removing Reader Buddy from your reMarkable
+
+SSH into your reMarkable and remove the binary:
+```bash
+ssh root@10.11.99.1
+rm -f ~/reader-buddy
+```
+
+### Cleaning up debug files
+
+Remove debug images from the reMarkable:
+```bash
+ssh root@10.11.99.1
+rm -f /tmp/reader-buddy-*.png
+```
+
+### Removing persistent state
+
+Reader Buddy stores symbol state to track which symbol to use next. To reset this:
+```bash
+ssh root@10.11.99.1
+rm -f /home/root/.reader-buddy-symbol-state
+```
+
+### Complete cleanup (all at once)
+
+```bash
+ssh root@10.11.99.1 "rm -f ~/reader-buddy /tmp/reader-buddy-*.png /home/root/.reader-buddy-symbol-state"
+```
+
+### Stopping a running instance
+
+If Reader Buddy is running in the background:
+```bash
+ssh root@10.11.99.1
+# Find the process
+ps | grep reader-buddy
+
+# Kill it (replace PID with actual process ID from the output)
+kill <PID>
+
+# Or kill using killall (kills all instances)
+killall reader-buddy
+```
+
 ## Known Limitations
 
 - **Single Question Per Trigger**: Processes one outline-question pair per trigger (future: may support multiple if use case emerges)
 - **Outline Detection**: Currently LLM-based (future: add local CV algorithms as optimization)
-- **Symbol Rendering**: Currently simple geometric shapes (TODO: render actual ①②③④⑤ glyphs)
-- **Bounding Box Accuracy**: LLM provides approximate regions (may need fine-tuning for precise erasure)
+- **Bounding Box Accuracy**: LLM provides approximate regions - smart erasure helps but may not be perfect
 - **Internet Required**: Requires connection for ChatGPT API
 - **No Context Retention**: Each trigger is independent (no follow-up question support in v0.1)
+- **Page Creation**: Uses xochitl's menu system via touch simulation - coordinates may need calibration for different software versions
 
 ## Automated Releases
 
@@ -250,11 +346,19 @@ Releases are automatically created with pre-built binaries for both reMarkable d
 
 ## Contributing
 
-Contributions welcome! Remaining enhancements:
-- Proper ①②③④⑤ glyph rendering (currently simple shapes)
+Contributions welcome! Areas for enhancement:
 - Local CV outline detection (reduce LLM calls)
-- Improved bounding box accuracy
+- Further bounding box accuracy improvements
+- Page creation coordinate calibration for different xochitl versions
+- Multi-question support per trigger
 - Device testing and refinement
+
+**Recent Improvements (v0.2)**:
+- ✅ Smart erasure using pixel-level ink detection
+- ✅ Proper circled-number symbol rendering (①②③④⑤ etc.)
+- ✅ Native page creation via xochitl menu system
+- ✅ Debug dump mode for troubleshooting
+- ✅ Answer page reuse - multiple questions from same page share one answer page
 
 **Version Bumps**: Use `!` for major, `feature/` branches for minor, any code change for patch.
 

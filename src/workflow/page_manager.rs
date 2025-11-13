@@ -1,41 +1,47 @@
 use anyhow::Result;
-use log::{debug, info};
+use log::{debug, info, warn};
 use std::thread::sleep;
 use std::time::Duration;
 
 use crate::device::touch::Touch;
+use super::xochitl_integration::{XochitlIntegration, NavigationDirection};
 
-/// Manages page navigation and creation on the reMarkable using touch gestures
+/// Manages page navigation and creation on the reMarkable using xochitl integration
 pub struct PageManager;
 
 impl PageManager {
     /// Create a new page to the right of the current page
-    /// Uses swipe gesture simulation to navigate and create pages
+    /// Uses xochitl's native menu system to properly insert a new page
     pub fn create_page_right(touch: &mut Touch) -> Result<()> {
-        info!("Creating new page to the right via swipe gesture");
+        info!("Creating new page via xochitl menu system");
 
-        // Strategy: Swipe left to go to next page
-        // If we're at the last page, xochitl will create a new blank page
-
-        Self::swipe_left(touch)?;
-        sleep(Duration::from_millis(500)); // Wait for page transition
-
-        Ok(())
+        // Use xochitl integration to create page via native UI
+        match XochitlIntegration::create_page_after_current(touch) {
+            Ok(_) => {
+                info!("Page created successfully via xochitl menu");
+                // Navigate to the newly created page
+                sleep(Duration::from_millis(300));
+                XochitlIntegration::navigate_to_page(touch, NavigationDirection::Next)?;
+                Ok(())
+            }
+            Err(e) => {
+                warn!("Failed to create page via xochitl menu: {}", e);
+                Err(e)
+            }
+        }
     }
 
     /// Navigate to the next page (swipe left)
     pub fn next_page(touch: &mut Touch) -> Result<()> {
         info!("Navigating to next page");
-        Self::swipe_left(touch)?;
-        sleep(Duration::from_millis(300));
+        XochitlIntegration::navigate_to_page(touch, NavigationDirection::Next)?;
         Ok(())
     }
 
     /// Navigate to the previous page (swipe right)
     pub fn previous_page(touch: &mut Touch) -> Result<()> {
         info!("Navigating to previous page");
-        Self::swipe_right(touch)?;
-        sleep(Duration::from_millis(300));
+        XochitlIntegration::navigate_to_page(touch, NavigationDirection::Previous)?;
         Ok(())
     }
 

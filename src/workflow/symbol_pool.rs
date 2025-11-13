@@ -75,23 +75,37 @@ impl SymbolPool {
         self.symbols[self.current_index].clone()
     }
 
-    /// Convert symbol to bitmap for rendering
-    /// MVP: Uses simple circle pattern. Future enhancement: render actual Unicode glyphs
-    pub fn symbol_to_bitmap(_symbol: &str, size: u32) -> Vec<Vec<bool>> {
-        // TODO: Future enhancement - render actual Unicode circled numbers (①②③④⑤⑥⑦⑧⑨⑩)
-        // Options for future implementation:
-        // 1. Use font rendering with resvg (like ghostwriter does for SVG text)
-        // 2. Pre-rendered bitmap glyphs embedded in binary
-        // 3. SVG paths for each symbol converted to bitmaps
-        //
-        // For MVP: Simple circle marker works fine for visual reference
+    /// Convert symbol to bitmap for rendering using SVG
+    pub fn symbol_to_bitmap(symbol: &str, size: u32) -> Vec<Vec<bool>> {
+        use crate::util::svg_to_bitmap;
+        
+        debug!("Converting symbol '{}' to {}x{} bitmap using SVG", symbol, size, size);
 
-        debug!(
-            "Converting symbol to {}x{} bitmap (simple circle for MVP)",
-            size, size
+        // Create SVG with the circled number symbol
+        // Using large font size and centered positioning
+        let font_size = (size as f32 * 0.8) as u32;
+        let x = size / 2;
+        let y = (size as f32 * 0.75) as u32; // Adjust vertical centering for better appearance
+        
+        let svg_data = format!(
+            r#"<svg width='{size}' height='{size}' xmlns='http://www.w3.org/2000/svg'>
+                <text x='{x}' y='{y}' font-family='Noto Sans, DejaVu Sans, sans-serif' 
+                      font-size='{font_size}' fill='black' text-anchor='middle'>{symbol}</text>
+            </svg>"#
         );
 
-        // Return a simple circle pattern
+        // Try to render the SVG, fall back to simple circle on error
+        match svg_to_bitmap(&svg_data, size, size) {
+            Ok(bitmap) => bitmap,
+            Err(e) => {
+                debug!("Failed to render SVG symbol: {}, using fallback circle", e);
+                Self::fallback_circle_bitmap(size)
+            }
+        }
+    }
+
+    /// Fallback simple circle bitmap if SVG rendering fails
+    fn fallback_circle_bitmap(size: u32) -> Vec<Vec<bool>> {
         let mut bitmap = vec![vec![false; size as usize]; size as usize];
         let center = size as i32 / 2;
         let radius = (size as f32 * 0.4) as i32;
