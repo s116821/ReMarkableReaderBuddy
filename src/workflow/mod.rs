@@ -1,10 +1,9 @@
 pub mod orchestrator;
-pub mod page_manager;
 pub mod symbol_pool;
 pub mod xochitl_integration;
 
 use anyhow::Result;
-use log::info;
+use log::{debug, info};
 
 use crate::device::{keyboard::Keyboard, pen::Pen, screenshot::Screenshot, touch::Touch};
 
@@ -96,7 +95,7 @@ impl Workflow {
 
     /// Smart erase that only erases detected ink pixels within the region
     pub fn erase_region_smart(&mut self, region: &crate::analysis::BoundingBox, screenshot_data: &[u8]) -> Result<()> {
-        use image::{GenericImageView, Rgba, RgbaImage};
+        use image::Rgba;
         
         info!(
             "Smart erasing region at ({}, {}) size {}x{}",
@@ -240,78 +239,173 @@ impl Workflow {
         &mut self.touch
     }
 
-    /// Create a new page to the right of the current page
-    pub fn create_new_page_right(&mut self) -> Result<()> {
-        page_manager::PageManager::create_page_right(&mut self.touch)?;
-        Ok(())
-    }
-
-    /// Navigate to the next page
+    /// Navigate to the next page (swipe left)
     pub fn navigate_to_next_page(&mut self) -> Result<()> {
-        page_manager::PageManager::next_page(&mut self.touch)?;
+        xochitl_integration::XochitlIntegration::navigate_to_page(
+            &mut self.touch, 
+            xochitl_integration::NavigationDirection::Next
+        )?;
         Ok(())
     }
 
-    /// Navigate back to the previous page
+    /// Navigate back to the previous page (swipe right)
     pub fn navigate_to_previous_page(&mut self) -> Result<()> {
-        page_manager::PageManager::previous_page(&mut self.touch)?;
+        xochitl_integration::XochitlIntegration::navigate_to_page(
+            &mut self.touch,
+            xochitl_integration::NavigationDirection::Previous
+        )?;
+        Ok(())
+    }
+    
+    /// Draw a failure X in the bottom-right corner (~150x150 px)
+    /// Used to indicate that no valid answer page was found
+    pub fn draw_failure_x(&mut self) -> Result<()> {
+        info!("Drawing failure X in bottom-right corner");
+        
+        // Position: bottom-right corner with some margin
+        // Screen is 768x1024, X should be ~150x150
+        const X_SIZE: i32 = 150;
+        const MARGIN: i32 = 20;
+        
+        let x_start = 768 - MARGIN - X_SIZE;
+        let y_start = 1024 - MARGIN - X_SIZE;
+        let x_end = 768 - MARGIN;
+        let y_end = 1024 - MARGIN;
+        
+        // Draw two diagonal lines to form an X (using screen coordinates)
+        // Line 1: top-left to bottom-right
+        self.pen.draw_line_screen((x_start, y_start), (x_end, y_end))?;
+        
+        // Line 2: top-right to bottom-left
+        self.pen.draw_line_screen((x_end, y_start), (x_start, y_end))?;
+        
+        debug!("Failure X drawn at ({}, {}) to ({}, {})", x_start, y_start, x_end, y_end);
         Ok(())
     }
 
-    /// Check if the next page is a Reader Buddy answer page
-    /// Does this by navigating to the next page, taking a screenshot, and checking for the marker text
-    pub fn check_if_next_page_is_answer_page(&mut self) -> Result<bool> {
-        use image::GenericImageView;
+    /// Check if the current page is valid for rendering answers
+    /// A page is valid if it is either:
+    /// 1. A blank page (very few ink pixels)
+    /// 2. An existing Reader Buddy answer page (has our header pattern)
+    /// 
+    /// Returns Ok(true) if valid, Ok(false) if not suitable for answers
+    pub fn is_valid_answer_page(&mut self) -> Result<bool> {
+        info!("Checking if current page is valid for answers (blank or QA page)");
         
-        info!("Checking if next page is an answer page");
-        
-        // Navigate to next page
-        self.navigate_to_next_page()?;
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        
-        // Take screenshot
+        // Take screenshot of current page
+        std::thread::sleep(std::time::Duration::from_millis(500)); // Let page settle
         self.screenshot.take_screenshot()?;
         let png_data = self.screenshot.get_image_data();
         
-        // Load image and check for dark pixels in the header region where "Reader Buddy Answers" would be
+        // Load image
         let img = match image::load_from_memory(png_data) {
             Ok(img) => img,
             Err(e) => {
-                log::warn!("Failed to load screenshot for answer page check: {}", e);
-                // Navigate back on error
-                self.navigate_to_previous_page()?;
+                log::warn!("Failed to load screenshot for page check: {}", e);
                 return Ok(false);
             }
         };
         
-        let gray_img = img.to_luma8();
+        let gray = img.to_luma8();
         
-        // Check the top 100 pixels of the page for dark content (text)
-        // If there's significant dark content in the header area, it's likely our answer page
-        const HEADER_HEIGHT: u32 = 100;
-        const INK_THRESHOLD: u8 = 200;
-        const MIN_INK_PIXELS: u32 = 50; // Minimum number of dark pixels to consider it has text
+        // Check 1: Is it a blank page?
+        // Count dark pixels (ink) - blank pages have very few
+        const INK_THRESHOLD: u8 = 200; // Pixels darker than this are ink
+        const MAX_INK_RATIO: f32 = 0.01; // Allow up to 1% ink for "blank" (minor artifacts)
         
-        let mut ink_pixel_count = 0;
-        for y in 0..HEADER_HEIGHT.min(gray_img.height()) {
-            for x in 0..gray_img.width() {
-                let pixel = gray_img.get_pixel(x, y);
+        let mut ink_count: u64 = 0;
+        let mut total_count: u64 = 0;
+        
+        // Sample every 5th pixel for speed
+        for (x, y, pixel) in gray.enumerate_pixels() {
+            if x % 5 == 0 && y % 5 == 0 {
+                total_count += 1;
                 if pixel[0] < INK_THRESHOLD {
-                    ink_pixel_count += 1;
-                    if ink_pixel_count >= MIN_INK_PIXELS {
-                        // Found enough ink, likely an answer page
-                        log::debug!("Detected answer page marker (found {} ink pixels)", ink_pixel_count);
-                        // Navigate back to original page
-                        self.navigate_to_previous_page()?;
-                        return Ok(true);
-                    }
+                    ink_count += 1;
                 }
             }
         }
         
-        log::debug!("No answer page marker found (only {} ink pixels in header)", ink_pixel_count);
-        // Navigate back to original page
-        self.navigate_to_previous_page()?;
+        let ink_ratio = if total_count > 0 {
+            ink_count as f32 / total_count as f32
+        } else {
+            0.0
+        };
+        
+        if ink_ratio <= MAX_INK_RATIO {
+            info!("Page is BLANK (ink ratio: {:.2}% <= {:.2}%)", ink_ratio * 100.0, MAX_INK_RATIO * 100.0);
+            return Ok(true);
+        }
+        
+        debug!("Page is not blank (ink ratio: {:.2}%), checking for QA header...", ink_ratio * 100.0);
+        
+        // Check 2: Does it have our QA header pattern?
+        const HEADER_HEIGHT: u32 = 120;
+        let header_img = img.crop_imm(0, 0, img.width(), HEADER_HEIGHT.min(img.height()));
+        
+        // Try fast pattern matching (if we have a saved pattern)
+        const PATTERN_PATH: &str = "/home/root/.reader-buddy-header-pattern.png";
+        
+        if let Ok(saved_pattern_data) = std::fs::read(PATTERN_PATH) {
+            debug!("Found saved header pattern, using fast pixel comparison");
+            if let Ok(saved_pattern) = image::load_from_memory(&saved_pattern_data) {
+                let similarity = Self::compute_image_similarity(&header_img, &saved_pattern);
+                debug!("Header similarity: {:.2}%", similarity * 100.0);
+                
+                const SIMILARITY_THRESHOLD: f32 = 0.999;
+                if similarity >= SIMILARITY_THRESHOLD {
+                    info!("Page has QA header (similarity: {:.2}%)", similarity * 100.0);
+                    return Ok(true);
+                }
+            }
+        }
+        
+        // Neither blank nor QA page
+        info!("Page is NOT valid: not blank and no QA header found");
         Ok(false)
+    }
+    
+    /// Save the header pattern for future fast detection
+    /// Should be called after successfully detecting an answer page via LLM
+    pub fn save_header_pattern(&self, header_img: &image::DynamicImage) -> Result<()> {
+        const PATTERN_PATH: &str = "/home/root/.reader-buddy-header-pattern.png";
+        info!("Saving header pattern to {}", PATTERN_PATH);
+        
+        header_img.save(PATTERN_PATH)?;
+        debug!("Header pattern saved successfully");
+        
+        Ok(())
+    }
+    
+    /// Compute similarity between two images (returns 0.0-1.0, where 1.0 is identical)
+    /// Used internally for header pattern matching
+    fn compute_image_similarity(img1: &image::DynamicImage, img2: &image::DynamicImage) -> f32 {
+        let gray1 = img1.to_luma8();
+        let gray2 = img2.to_luma8();
+        
+        if gray1.dimensions() != gray2.dimensions() {
+            return 0.0;
+        }
+        
+        let mut total_diff: u64 = 0;
+        let mut pixel_count: u64 = 0;
+        
+        // Sample every 5th pixel for speed
+        for (y, row) in gray1.enumerate_rows() {
+            if y % 5 != 0 { continue; }
+            for (x, _, pixel1) in row {
+                if x % 5 != 0 { continue; }
+                let pixel2 = gray2.get_pixel(x, y);
+                let diff = (pixel1[0] as i32 - pixel2[0] as i32).abs() as u64;
+                total_diff += diff * diff;
+                pixel_count += 1;
+            }
+        }
+        
+        if pixel_count == 0 { return 0.0; }
+        
+        let mse = total_diff as f32 / pixel_count as f32;
+        let max_mse = 255.0 * 255.0;
+        1.0 - (mse / max_mse).min(1.0)
     }
 }

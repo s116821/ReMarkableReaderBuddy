@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::{debug, error, info};
 
-use super::{symbol_pool::SymbolPool, Workflow};
+use super::Workflow;
 use crate::analysis::BoundingBox;
 use crate::llm::{openai::OpenAI, LLMEngine};
 
@@ -18,19 +18,13 @@ struct AnalysisResult {
 pub struct Orchestrator {
     workflow: Workflow,
     llm: OpenAI,
-    symbol_pool: SymbolPool,
 }
 
 impl Orchestrator {
     pub fn new(workflow: Workflow, llm: OpenAI) -> Self {
-        let mut symbol_pool = SymbolPool::new();
-        // Load previous state (if any)
-        let _ = symbol_pool.load();
-
         Self {
             workflow,
             llm,
-            symbol_pool,
         }
     }
 
@@ -41,11 +35,9 @@ impl Orchestrator {
 
         // Step 1: Wait for trigger
         self.workflow.wait_for_trigger()?;
-        self.workflow.show_progress("Processing...")?;
 
-        // Step 2: Capture screenshot
+        // Step 2: Capture screenshot (of current/question page)
         let (screenshot_base64, screenshot_png_data) = self.workflow.capture_screenshot_with_data()?;
-        self.workflow.show_progress("Analyzing...")?;
 
         // Step 3: Single LLM call does everything:
         // - Detect outlined region
@@ -56,8 +48,8 @@ impl Orchestrator {
         match result {
             None => {
                 info!("No outlined regions or questions detected");
-                self.workflow.clear_progress()?;
-                self.workflow.render_text("No outlined content found. Please draw an outline around content and write a question nearby.")?;
+                // Draw failure X on current page (no text output)
+                self.workflow.draw_failure_x()?;
                 return Ok(());
             }
             Some(result) => {
@@ -65,17 +57,15 @@ impl Orchestrator {
                     "Got Q&A - Question: {} | Answer: {}",
                     result.question, result.answer
                 );
-                self.workflow.show_progress("Rendering...")?;
 
                 if let Err(e) = self.render_answer(&result) {
                     error!("Error rendering answer: {}", e);
-                    self.workflow.clear_progress()?;
-                    self.workflow.render_text(&format!("Error: {}", e))?;
+                    // On error, draw failure X (no text output)
+                    self.workflow.draw_failure_x()?;
                 }
             }
         }
 
-        self.workflow.clear_progress()?;
         info!("=== Iteration Complete ===");
         Ok(())
     }
@@ -196,118 +186,186 @@ impl Orchestrator {
         None
     }
 
-    /// Render the answer on a new page with proper cleanup
+    /// Render the answer on the next page
+    /// 
+    /// Simplified flow:
+    /// 1. Store original page screenshot for later comparison
+    /// 2. Navigate right to next page  
+    /// 3. Compare to original to verify we actually moved
+    /// 4. Check if page is valid (blank or existing QA page)
+    /// 5. If not valid or didn't move → ensure we're on original and draw X
+    /// 6. If valid → render Q&A on that page
     fn render_answer(&mut self, result: &AnalysisResult) -> Result<()> {
-        info!("Rendering Q&A on new page");
+        info!("Attempting to render Q&A on next page");
 
-        // Get the next symbol from the pool
-        let symbol = self.symbol_pool.next_symbol()?;
-        info!("Using reference symbol: {}", symbol);
+        // Step 1: Store original page screenshot for comparison
+        self.workflow.screenshot.take_screenshot()?;
+        let original_png = self.workflow.screenshot.get_image_data().to_vec();
+        let original_img = image::load_from_memory(&original_png)?;
+        debug!("Stored original page screenshot for comparison");
 
-        // Step 1: Erase question text if we have its location
-        // IMPORTANT: Only erase question, preserve outline
-        if let Some(question_box) = &result.question_box {
-            // Clamp coordinates to virtual workspace (768x1024)
-            let clamped_x = question_box.x.max(0).min(768 - question_box.width.max(1));
-            let clamped_y = question_box.y.max(0).min(1024 - question_box.height.max(1));
-            let clamped_width = question_box.width.max(1).min(768 - clamped_x);
-            let clamped_height = question_box.height.max(1).min(1024 - clamped_y);
-            
-            debug!(
-                "Original question box: ({}, {}) size {}x{} -> Clamped: ({}, {}) size {}x{}",
-                question_box.x, question_box.y, question_box.width, question_box.height,
-                clamped_x, clamped_y, clamped_width, clamped_height
-            );
-            
-            info!(
-                "Erasing question at ({}, {}) size {}x{}",
-                clamped_x, clamped_y, clamped_width, clamped_height
-            );
-            
-            let clamped_box = BoundingBox {
-                x: clamped_x,
-                y: clamped_y,
-                width: clamped_width,
-                height: clamped_height,
-            };
-            
-            self.workflow.show_progress("Erasing question...")?;
-            self.workflow.erase_region_smart(&clamped_box, &result.screenshot_data)?;
-        } else {
-            debug!("No question bounding box provided, skipping erasure");
+        // Step 2: Attempt to navigate to next page
+        self.workflow.navigate_to_next_page()?;
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        
+        // Step 3: Take screenshot and compare to original
+        self.workflow.screenshot.take_screenshot()?;
+        let current_png = self.workflow.screenshot.get_image_data().to_vec();
+        let current_img = image::load_from_memory(&current_png)?;
+        
+        let similarity_to_original = Self::compute_image_similarity(&original_img, &current_img);
+        debug!("Similarity to original page: {:.2}%", similarity_to_original * 100.0);
+        
+        // If we're still very similar to original (>99.9%), we didn't actually navigate
+        const SAME_PAGE_THRESHOLD: f32 = 0.999;
+        let did_navigate = similarity_to_original < SAME_PAGE_THRESHOLD;
+        
+        if !did_navigate {
+            info!("No page exists to the right (similarity {:.1}% >= {:.1}%) - drawing X on original", 
+                  similarity_to_original * 100.0, SAME_PAGE_THRESHOLD * 100.0);
+            // We're confirmed still on original page, draw failure X
+            self.workflow.draw_failure_x()?;
+            return Ok(());
         }
-
-        // Step 2: Draw symbol on current page (where question was)
-        self.workflow.show_progress("Marking original...")?;
-        let symbol_x = if let Some(qbox) = &result.question_box {
-            (qbox.x + qbox.width / 2).max(0).min(767)
-        } else {
-            50 // Default location if no box
-        };
-        let symbol_y = if let Some(qbox) = &result.question_box {
-            (qbox.y + qbox.height / 2).max(0).min(1023)
-        } else {
-            950 // Default location if no box
-        };
-        debug!("Symbol placement at virtual coordinates: ({}, {})", symbol_x, symbol_y);
-        self.draw_symbol_on_page(&symbol, symbol_x, symbol_y)?;
         
-        // Allow e-ink display to settle before navigation
-        std::thread::sleep(std::time::Duration::from_millis(500));
-
-        // Step 3: Check if answer page already exists, or create new one
-        self.workflow.show_progress("Checking for answer page...")?;
-        let needs_new_page = !self.workflow.check_if_next_page_is_answer_page()?;
+        info!("Navigation successful (similarity {:.1}% < {:.1}%)", 
+              similarity_to_original * 100.0, SAME_PAGE_THRESHOLD * 100.0);
         
-        if needs_new_page {
-            info!("No answer page found, creating new one");
-            self.workflow.show_progress("Creating page...")?;
-            self.workflow.create_new_page_right()?;
+        // Step 4: Check if the page we navigated to is valid (blank or QA)
+        let is_valid = self.workflow.is_valid_answer_page()?;
+        
+        if !is_valid {
+            // Page exists but is not suitable - return to original
+            info!("Next page is not valid (not blank and not a QA page) - returning to original");
             
-            // Wait for page to be fully created and active
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            
-            // Add header to mark this as an answer page
-            self.workflow.clear_progress()?;
+            // Navigate back and verify we're on original
+            self.return_to_original_page(&original_img)?;
+            self.workflow.draw_failure_x()?;
+            return Ok(());
+        }
+        
+        // Step 5: Valid page found - render Q&A
+        info!("Valid answer page found, rendering Q&A");
+        
+        // Check if this is a blank page (needs header)
+        let is_blank = self.check_if_page_is_blank()?;
+        
+        if is_blank {
+            debug!("Blank page detected, adding header");
             self.workflow.get_keyboard_mut().key_cmd_body()?;
             std::thread::sleep(std::time::Duration::from_millis(200));
             self.workflow.render_text("=== Reader Buddy Answers ===\n\n")?;
-        } else {
-            info!("Reusing existing answer page");
-            self.workflow.show_progress("Using existing page...")?;
-            self.workflow.navigate_to_next_page()?;
+            
+            // Save header pattern for future detection
             std::thread::sleep(std::time::Duration::from_millis(500));
+            self.workflow.screenshot.take_screenshot()?;
+            let new_png = self.workflow.screenshot.get_image_data();
+            if let Ok(new_img) = image::load_from_memory(new_png) {
+                const HEADER_HEIGHT: u32 = 120;
+                let header_img = new_img.crop_imm(0, 0, new_img.width(), HEADER_HEIGHT.min(new_img.height()));
+                if let Err(e) = self.workflow.save_header_pattern(&header_img) {
+                    log::warn!("Failed to save header pattern: {}", e);
+                }
+            }
         }
         
-        // Step 4: Render Q&A on answer page with matching symbol
-        self.workflow.clear_progress()?;
-        
-        // Ensure keyboard is in body text mode before typing
+        // Render the Q&A
         self.workflow.get_keyboard_mut().key_cmd_body()?;
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         let formatted_output = format!(
-            "{} Q: {}\n\nA: {}\n\n---\n\n",
-            symbol, result.question, result.answer
+            "Q: {}\n\nA: {}\n\n---\n\n",
+            result.question, result.answer
         );
 
         self.workflow.render_text(&formatted_output)?;
 
-        // Step 5: Navigate back to original page to preserve reading context
-        self.workflow.navigate_to_previous_page()?;
-
-        info!("Q&A rendered successfully with symbol {}", symbol);
+        info!("Q&A rendered successfully");
         Ok(())
     }
-
-    /// Draw a symbol on the current page
-    fn draw_symbol_on_page(&mut self, symbol: &str, x: i32, y: i32) -> Result<()> {
-        info!("Drawing symbol {} at ({}, {})", symbol, x, y);
-
-        // Use the workflow's draw_symbol method which converts to bitmap and draws
-        self.workflow.draw_symbol(x, y, symbol)?;
-
+    
+    /// Navigate back to the original page and verify we arrived
+    fn return_to_original_page(&mut self, original_img: &image::DynamicImage) -> Result<()> {
+        const MAX_ATTEMPTS: u32 = 3;
+        const SAME_PAGE_THRESHOLD: f32 = 0.999;
+        
+        for attempt in 1..=MAX_ATTEMPTS {
+            debug!("Attempting to return to original page (attempt {})", attempt);
+            
+            self.workflow.navigate_to_previous_page()?;
+            std::thread::sleep(std::time::Duration::from_millis(800));
+            
+            // Check if we're back on original
+            self.workflow.screenshot.take_screenshot()?;
+            let current_png = self.workflow.screenshot.get_image_data();
+            let current_img = image::load_from_memory(current_png)?;
+            
+            let similarity = Self::compute_image_similarity(original_img, &current_img);
+            debug!("Similarity to original: {:.2}%", similarity * 100.0);
+            
+            if similarity >= SAME_PAGE_THRESHOLD {
+                info!("Confirmed back on original page (similarity: {:.1}%)", similarity * 100.0);
+                return Ok(());
+            }
+        }
+        
+        // If we couldn't get back, log warning but continue
+        log::warn!("Could not confirm return to original page after {} attempts", MAX_ATTEMPTS);
         Ok(())
+    }
+    
+    /// Check if the current page is mostly blank (< 1% ink)
+    fn check_if_page_is_blank(&mut self) -> Result<bool> {
+        self.workflow.screenshot.take_screenshot()?;
+        let png_data = self.workflow.screenshot.get_image_data();
+        let img = image::load_from_memory(png_data)?;
+        let gray = img.to_luma8();
+        
+        let mut ink_count: u64 = 0;
+        let mut total: u64 = 0;
+        
+        for (x, y, pixel) in gray.enumerate_pixels() {
+            if x % 10 == 0 && y % 10 == 0 {
+                total += 1;
+                if pixel[0] < 200 {
+                    ink_count += 1;
+                }
+            }
+        }
+        
+        let ink_ratio = if total > 0 { ink_count as f32 / total as f32 } else { 0.0 };
+        Ok(ink_ratio < 0.01)
+    }
+    
+    /// Compute similarity between two images (returns 0.0-1.0, where 1.0 is identical)
+    fn compute_image_similarity(img1: &image::DynamicImage, img2: &image::DynamicImage) -> f32 {
+        let gray1 = img1.to_luma8();
+        let gray2 = img2.to_luma8();
+        
+        if gray1.dimensions() != gray2.dimensions() {
+            return 0.0;
+        }
+        
+        let mut total_diff: u64 = 0;
+        let mut pixel_count: u64 = 0;
+        
+        // Sample every 10th pixel for speed
+        for (y, row) in gray1.enumerate_rows() {
+            if y % 10 != 0 { continue; }
+            for (x, _, pixel1) in row {
+                if x % 10 != 0 { continue; }
+                let pixel2 = gray2.get_pixel(x, y);
+                let diff = (pixel1[0] as i32 - pixel2[0] as i32).abs() as u64;
+                total_diff += diff * diff;
+                pixel_count += 1;
+            }
+        }
+        
+        if pixel_count == 0 { return 0.0; }
+        
+        let mse = total_diff as f32 / pixel_count as f32;
+        let max_mse = 255.0 * 255.0;
+        1.0 - (mse / max_mse).min(1.0)
     }
 
     /// Run the main loop
