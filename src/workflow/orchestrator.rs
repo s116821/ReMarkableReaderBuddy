@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::{debug, error, info};
 
-use super::Workflow;
+use super::{AnswerPageType, Workflow};
 use crate::analysis::BoundingBox;
 use crate::llm::{openai::OpenAI, LLMEngine};
 
@@ -232,42 +232,46 @@ impl Orchestrator {
               similarity_to_original * 100.0, SAME_PAGE_THRESHOLD * 100.0);
         
         // Step 4: Check if the page we navigated to is valid (blank or QA)
-        let is_valid = self.workflow.is_valid_answer_page()?;
+        let page_type = self.workflow.is_valid_answer_page()?;
         
-        if !is_valid {
-            // Page exists but is not suitable - return to original
-            info!("Next page is not valid (not blank and not a QA page) - returning to original");
-            
-            // Navigate back and verify we're on original
-            self.return_to_original_page(&original_img)?;
-            self.workflow.draw_failure_x()?;
-            return Ok(());
-        }
-        
-        // Step 5: Valid page found - render Q&A
-        info!("Valid answer page found, rendering Q&A");
-        
-        // Switch to body text mode once before all rendering
-        self.workflow.set_body_text_mode()?;
-        
-        // Check if this is a blank page (needs header)
-        let is_blank = self.check_if_page_is_blank()?;
-        
-        if is_blank {
-            debug!("Blank page detected, adding header");
-            // Header with two blank lines before first Q&A block
-            self.workflow.render_text("=== Reader Buddy Answers ===\n\n\n")?;
-            
-            // Save header pattern for future detection
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            self.workflow.screenshot.take_screenshot()?;
-            let new_png = self.workflow.screenshot.get_image_data();
-            if let Ok(new_img) = image::load_from_memory(new_png) {
-                const HEADER_HEIGHT: u32 = 120;
-                let header_img = new_img.crop_imm(0, 0, new_img.width(), HEADER_HEIGHT.min(new_img.height()));
-                if let Err(e) = self.workflow.save_header_pattern(&header_img) {
-                    log::warn!("Failed to save header pattern: {}", e);
+        match page_type {
+            AnswerPageType::Invalid => {
+                // Page exists but is not suitable - return to original
+                info!("Next page is not valid (not blank and not a QA page) - returning to original");
+                
+                // Navigate back and verify we're on original
+                self.return_to_original_page(&original_img)?;
+                self.workflow.draw_failure_x()?;
+                return Ok(());
+            }
+            AnswerPageType::Blank => {
+                // Step 5a: Blank page - render header first, then Q&A
+                info!("Blank page found, rendering header and Q&A");
+                
+                // Switch to body text mode once before all rendering
+                self.workflow.set_body_text_mode()?;
+                
+                // Header with two blank lines before first Q&A block
+                self.workflow.render_text("=== Reader Buddy Answers ===\n\n\n")?;
+                
+                // Save header pattern for future detection (only on first blank page)
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                self.workflow.screenshot.take_screenshot()?;
+                let new_png = self.workflow.screenshot.get_image_data();
+                if let Ok(new_img) = image::load_from_memory(new_png) {
+                    const HEADER_HEIGHT: u32 = 150; // Capture full header region from top
+                    let header_img = new_img.crop_imm(0, 0, new_img.width(), HEADER_HEIGHT.min(new_img.height()));
+                    if let Err(e) = self.workflow.save_header_pattern(&header_img) {
+                        log::warn!("Failed to save header pattern: {}", e);
+                    }
                 }
+            }
+            AnswerPageType::ExistingQA => {
+                // Step 5b: Existing QA page - just append Q&A content (no header)
+                info!("Existing QA page found, appending Q&A (no header needed)");
+                
+                // Switch to body text mode
+                self.workflow.set_body_text_mode()?;
             }
         }
         
@@ -311,29 +315,6 @@ impl Orchestrator {
         // If we couldn't get back, log warning but continue
         log::warn!("Could not confirm return to original page after {} attempts", MAX_ATTEMPTS);
         Ok(())
-    }
-    
-    /// Check if the current page is mostly blank (< 1% ink)
-    fn check_if_page_is_blank(&mut self) -> Result<bool> {
-        self.workflow.screenshot.take_screenshot()?;
-        let png_data = self.workflow.screenshot.get_image_data();
-        let img = image::load_from_memory(png_data)?;
-        let gray = img.to_luma8();
-        
-        let mut ink_count: u64 = 0;
-        let mut total: u64 = 0;
-        
-        for (x, y, pixel) in gray.enumerate_pixels() {
-            if x % 10 == 0 && y % 10 == 0 {
-                total += 1;
-                if pixel[0] < 200 {
-                    ink_count += 1;
-                }
-            }
-        }
-        
-        let ink_ratio = if total > 0 { ink_count as f32 / total as f32 } else { 0.0 };
-        Ok(ink_ratio < 0.01)
     }
     
     /// Compute similarity between two images (returns 0.0-1.0, where 1.0 is identical)

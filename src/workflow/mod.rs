@@ -7,6 +7,17 @@ use log::{debug, info, warn};
 
 use crate::device::{keyboard::Keyboard, pen::Pen, screenshot::Screenshot, touch::Touch};
 
+/// Result of checking if a page is valid for rendering answers
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AnswerPageType {
+    /// Page is blank - needs header to be rendered
+    Blank,
+    /// Page already has QA header - just append Q&A content
+    ExistingQA,
+    /// Page is not valid for answers
+    Invalid,
+}
+
 /// Cache directory for Reader Buddy (standard Linux location for cache files)
 const CACHE_DIR: &str = "/var/cache/reader-buddy";
 
@@ -46,9 +57,14 @@ impl Workflow {
         
         info!("Initializing cache directory: {}", CACHE_DIR);
         
-        // Create cache directory if it doesn't exist
-        if let Err(e) = fs::create_dir_all(CACHE_DIR) {
-            warn!("Failed to create cache directory {}: {} (may already exist)", CACHE_DIR, e);
+        // Create cache directory (and parent directories if needed)
+        match fs::create_dir_all(CACHE_DIR) {
+            Ok(_) => info!("Cache directory created/verified: {}", CACHE_DIR),
+            Err(e) => {
+                // Log error but don't fail - cache is optional
+                warn!("Failed to create cache directory {}: {}", CACHE_DIR, e);
+                return Ok(());
+            }
         }
         
         // Clear any existing cached files to ensure clean state on startup
@@ -330,11 +346,11 @@ impl Workflow {
 
     /// Check if the current page is valid for rendering answers
     /// A page is valid if it is either:
-    /// 1. A blank page (very few ink pixels)
-    /// 2. An existing Reader Buddy answer page (has our header pattern)
+    /// 1. A blank page (very few ink pixels) - returns Blank
+    /// 2. An existing Reader Buddy answer page (has our header pattern) - returns ExistingQA
     /// 
-    /// Returns Ok(true) if valid, Ok(false) if not suitable for answers
-    pub fn is_valid_answer_page(&mut self) -> Result<bool> {
+    /// Returns the page type: Blank, ExistingQA, or Invalid
+    pub fn is_valid_answer_page(&mut self) -> Result<AnswerPageType> {
         info!("Checking if current page is valid for answers (blank or QA page)");
         
         // Take screenshot of current page
@@ -347,27 +363,37 @@ impl Workflow {
             Ok(img) => img,
             Err(e) => {
                 log::warn!("Failed to load screenshot for page check: {}", e);
-                return Ok(false);
+                return Ok(AnswerPageType::Invalid);
             }
         };
         
         let gray = img.to_luma8();
+        let (width, _height) = gray.dimensions();
+        
+        // Mask constants - skip left toolbar and top-right close button
+        const LEFT_OFFSET: u32 = 75; // Skip left toolbar area
+        const TOP_RIGHT_SIZE: u32 = 50; // Skip top-right X button area
         
         // Check 1: Is it a blank page?
-        // Count dark pixels (ink) - blank pages have very few
+        // Count dark pixels (ink) - blank pages have very few ink pixels
         const INK_THRESHOLD: u8 = 200; // Pixels darker than this are ink
-        const MAX_INK_RATIO: f32 = 0.01; // Allow up to 1% ink for "blank" (minor artifacts)
+        const MAX_INK_RATIO: f32 = 0.001; // Allow up to 0.1% ink (page numbers at bottom)
         
         let mut ink_count: u64 = 0;
         let mut total_count: u64 = 0;
         
-        // Sample every 5th pixel for speed
+        // Sample every other pixel for accuracy, skip left toolbar and top-right button
         for (x, y, pixel) in gray.enumerate_pixels() {
-            if x % 5 == 0 && y % 5 == 0 {
-                total_count += 1;
-                if pixel[0] < INK_THRESHOLD {
-                    ink_count += 1;
-                }
+            // Skip left toolbar
+            if x < LEFT_OFFSET { continue; }
+            // Skip top-right corner (close button)
+            if x >= width - TOP_RIGHT_SIZE && y < TOP_RIGHT_SIZE { continue; }
+            // Sample every other pixel
+            if x % 2 != 0 || y % 2 != 0 { continue; }
+            
+            total_count += 1;
+            if pixel[0] < INK_THRESHOLD {
+                ink_count += 1;
             }
         }
         
@@ -377,35 +403,40 @@ impl Workflow {
             0.0
         };
         
+        info!("Blank page check: ink ratio {:.3}% (threshold: {:.1}%)", ink_ratio * 100.0, MAX_INK_RATIO * 100.0);
+        
         if ink_ratio <= MAX_INK_RATIO {
-            info!("Page is BLANK (ink ratio: {:.2}% <= {:.2}%)", ink_ratio * 100.0, MAX_INK_RATIO * 100.0);
-            return Ok(true);
+            info!("Page is BLANK - VALID");
+            return Ok(AnswerPageType::Blank);
         }
         
-        debug!("Page is not blank (ink ratio: {:.2}%), checking for QA header...", ink_ratio * 100.0);
+        info!("Page is not blank, checking for QA header...");
         
         // Check 2: Does it have our QA header pattern?
-        const HEADER_HEIGHT: u32 = 120;
+        const HEADER_HEIGHT: u32 = 150; // Capture full header region from top
         let header_img = img.crop_imm(0, 0, img.width(), HEADER_HEIGHT.min(img.height()));
         
         // Try fast pattern matching (if we have a saved pattern)
         if let Ok(saved_pattern_data) = std::fs::read(HEADER_PATTERN_PATH) {
-            debug!("Found saved header pattern, using fast pixel comparison");
             if let Ok(saved_pattern) = image::load_from_memory(&saved_pattern_data) {
-                let similarity = Self::compute_image_similarity(&header_img, &saved_pattern);
-                debug!("Header similarity: {:.2}%", similarity * 100.0);
+                // Use masked similarity comparison (same masks as blank check)
+                let similarity = Self::compute_image_similarity_masked(&header_img, &saved_pattern, LEFT_OFFSET, TOP_RIGHT_SIZE);
                 
                 const SIMILARITY_THRESHOLD: f32 = 0.999;
+                info!("QA header check: similarity {:.2}% (threshold: {:.1}%)", similarity * 100.0, SIMILARITY_THRESHOLD * 100.0);
+                
                 if similarity >= SIMILARITY_THRESHOLD {
-                    info!("Page has QA header (similarity: {:.2}%)", similarity * 100.0);
-                    return Ok(true);
+                    info!("Page has QA header - VALID (existing QA page)");
+                    return Ok(AnswerPageType::ExistingQA);
                 }
             }
+        } else {
+            info!("QA header check: no saved pattern found (first run?)");
         }
         
         // Neither blank nor QA page
-        info!("Page is NOT valid: not blank and no QA header found");
-        Ok(false)
+        info!("Page is NOT valid: failed both blank and QA header checks");
+        Ok(AnswerPageType::Invalid)
     }
     
     /// Save the header pattern for future fast detection
@@ -437,6 +468,44 @@ impl Workflow {
             if y % 5 != 0 { continue; }
             for (x, _, pixel1) in row {
                 if x % 5 != 0 { continue; }
+                let pixel2 = gray2.get_pixel(x, y);
+                let diff = (pixel1[0] as i32 - pixel2[0] as i32).abs() as u64;
+                total_diff += diff * diff;
+                pixel_count += 1;
+            }
+        }
+        
+        if pixel_count == 0 { return 0.0; }
+        
+        let mse = total_diff as f32 / pixel_count as f32;
+        let max_mse = 255.0 * 255.0;
+        1.0 - (mse / max_mse).min(1.0)
+    }
+    
+    /// Compute similarity between two images with masking (returns 0.0-1.0, where 1.0 is identical)
+    /// Skips left toolbar area and top-right close button area
+    fn compute_image_similarity_masked(img1: &image::DynamicImage, img2: &image::DynamicImage, left_offset: u32, top_right_size: u32) -> f32 {
+        let gray1 = img1.to_luma8();
+        let gray2 = img2.to_luma8();
+        
+        if gray1.dimensions() != gray2.dimensions() {
+            return 0.0;
+        }
+        
+        let (width, _height) = gray1.dimensions();
+        let mut total_diff: u64 = 0;
+        let mut pixel_count: u64 = 0;
+        
+        // Sample every 5th pixel for speed, with masking
+        for (y, row) in gray1.enumerate_rows() {
+            if y % 5 != 0 { continue; }
+            for (x, _, pixel1) in row {
+                if x % 5 != 0 { continue; }
+                // Skip left toolbar
+                if x < left_offset { continue; }
+                // Skip top-right corner (close button)
+                if x >= width - top_right_size && y < top_right_size { continue; }
+                
                 let pixel2 = gray2.get_pixel(x, y);
                 let diff = (pixel1[0] as i32 - pixel2[0] as i32).abs() as u64;
                 total_diff += diff * diff;
