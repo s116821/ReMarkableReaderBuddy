@@ -247,14 +247,16 @@ impl Orchestrator {
         // Step 5: Valid page found - render Q&A
         info!("Valid answer page found, rendering Q&A");
         
+        // Switch to body text mode once before all rendering
+        self.workflow.set_body_text_mode()?;
+        
         // Check if this is a blank page (needs header)
         let is_blank = self.check_if_page_is_blank()?;
         
         if is_blank {
             debug!("Blank page detected, adding header");
-            self.workflow.get_keyboard_mut().key_cmd_body()?;
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            self.workflow.render_text("=== Reader Buddy Answers ===\n\n")?;
+            // Header with two blank lines before first Q&A block
+            self.workflow.render_text("=== Reader Buddy Answers ===\n\n\n")?;
             
             // Save header pattern for future detection
             std::thread::sleep(std::time::Duration::from_millis(500));
@@ -270,11 +272,8 @@ impl Orchestrator {
         }
         
         // Render the Q&A
-        self.workflow.get_keyboard_mut().key_cmd_body()?;
-        std::thread::sleep(std::time::Duration::from_millis(200));
-
         let formatted_output = format!(
-            "Q: {}\n\nA: {}\n\n---\n\n",
+            "Q: {}\n\nA: {}\n---\n",
             result.question, result.answer
         );
 
@@ -378,7 +377,8 @@ impl Orchestrator {
                 Err(e) => {
                     error!("Error in iteration: {}", e);
                     // Try to show error to user
-                    let _ = self.workflow.render_text(&format!("Error: {}", e));
+                    let _ = self.workflow.set_body_text_mode();
+                    let _ = self.workflow.render_text(&format!("Error: {}\n", e));
                 }
             }
         }

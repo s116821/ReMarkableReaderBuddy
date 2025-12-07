@@ -3,9 +3,15 @@ pub mod symbol_pool;
 pub mod xochitl_integration;
 
 use anyhow::Result;
-use log::{debug, info};
+use log::{debug, info, warn};
 
 use crate::device::{keyboard::Keyboard, pen::Pen, screenshot::Screenshot, touch::Touch};
+
+/// Cache directory for Reader Buddy (standard Linux location for cache files)
+const CACHE_DIR: &str = "/var/cache/reader-buddy";
+
+/// Path to the cached header pattern image
+const HEADER_PATTERN_PATH: &str = "/var/cache/reader-buddy/header-pattern.png";
 
 /// Main workflow coordinator
 pub struct Workflow {
@@ -19,6 +25,9 @@ pub struct Workflow {
 
 impl Workflow {
     pub fn new(no_draw: bool, trigger_corner: crate::device::touch::TriggerCorner, debug_dump: bool) -> Result<Self> {
+        // Initialize cache directory (creates if needed, clears old files)
+        Self::init_cache()?;
+        
         Ok(Self {
             screenshot: Screenshot::new()?,
             pen: Pen::new(no_draw),
@@ -27,6 +36,37 @@ impl Workflow {
             debug_dump,
             iteration_count: 0,
         })
+    }
+    
+    /// Initialize the cache directory
+    /// Creates the directory if it doesn't exist and clears any cached files from previous runs
+    /// This ensures a clean state on startup (important when upgrading between versions)
+    fn init_cache() -> Result<()> {
+        use std::fs;
+        
+        info!("Initializing cache directory: {}", CACHE_DIR);
+        
+        // Create cache directory if it doesn't exist
+        if let Err(e) = fs::create_dir_all(CACHE_DIR) {
+            warn!("Failed to create cache directory {}: {} (may already exist)", CACHE_DIR, e);
+        }
+        
+        // Clear any existing cached files to ensure clean state on startup
+        if let Ok(entries) = fs::read_dir(CACHE_DIR) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Err(e) = fs::remove_file(&path) {
+                        warn!("Failed to remove cached file {:?}: {}", path, e);
+                    } else {
+                        debug!("Cleared cached file: {:?}", path);
+                    }
+                }
+            }
+        }
+        
+        info!("Cache initialized successfully");
+        Ok(())
     }
 
     /// Wait for user to trigger the workflow (touch in corner)
@@ -216,11 +256,16 @@ impl Workflow {
     }
 
     /// Render text on the screen using the keyboard
+    /// Note: The caller is responsible for including any desired newlines in the text
     pub fn render_text(&mut self, text: &str) -> Result<()> {
         info!("Rendering text: {}", text);
-        self.keyboard.key_cmd_body()?;
         self.keyboard.string_to_keypresses(text)?;
-        self.keyboard.string_to_keypresses("\n\n")?;
+        Ok(())
+    }
+    
+    /// Switch keyboard to body text mode (should be called once before rendering)
+    pub fn set_body_text_mode(&mut self) -> Result<()> {
+        self.keyboard.key_cmd_body()?;
         Ok(())
     }
 
@@ -257,14 +302,14 @@ impl Workflow {
         Ok(())
     }
     
-    /// Draw a failure X in the bottom-right corner (~150x150 px)
+    /// Draw a failure X in the bottom-right corner (~75x75 px)
     /// Used to indicate that no valid answer page was found
     pub fn draw_failure_x(&mut self) -> Result<()> {
         info!("Drawing failure X in bottom-right corner");
         
         // Position: bottom-right corner with some margin
-        // Screen is 768x1024, X should be ~150x150
-        const X_SIZE: i32 = 150;
+        // Screen is 768x1024, X should be ~75x75
+        const X_SIZE: i32 = 75;
         const MARGIN: i32 = 20;
         
         let x_start = 768 - MARGIN - X_SIZE;
@@ -344,9 +389,7 @@ impl Workflow {
         let header_img = img.crop_imm(0, 0, img.width(), HEADER_HEIGHT.min(img.height()));
         
         // Try fast pattern matching (if we have a saved pattern)
-        const PATTERN_PATH: &str = "/home/root/.reader-buddy-header-pattern.png";
-        
-        if let Ok(saved_pattern_data) = std::fs::read(PATTERN_PATH) {
+        if let Ok(saved_pattern_data) = std::fs::read(HEADER_PATTERN_PATH) {
             debug!("Found saved header pattern, using fast pixel comparison");
             if let Ok(saved_pattern) = image::load_from_memory(&saved_pattern_data) {
                 let similarity = Self::compute_image_similarity(&header_img, &saved_pattern);
@@ -368,10 +411,9 @@ impl Workflow {
     /// Save the header pattern for future fast detection
     /// Should be called after successfully detecting an answer page via LLM
     pub fn save_header_pattern(&self, header_img: &image::DynamicImage) -> Result<()> {
-        const PATTERN_PATH: &str = "/home/root/.reader-buddy-header-pattern.png";
-        info!("Saving header pattern to {}", PATTERN_PATH);
+        info!("Saving header pattern to {}", HEADER_PATTERN_PATH);
         
-        header_img.save(PATTERN_PATH)?;
+        header_img.save(HEADER_PATTERN_PATH)?;
         debug!("Header pattern saved successfully");
         
         Ok(())

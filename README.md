@@ -167,15 +167,21 @@ pkill reader-buddy
 
 To have Reader Buddy start automatically when your reMarkable boots:
 
-**Prerequisites:** Ensure the binary is copied to `/home/root/reader-buddy` on your reMarkable:
+**Prerequisites:** Install the binary to `/opt/bin/` on your reMarkable (standard location for optional software):
 
 ```bash
-# From your computer, copy the binary to the reMarkable
-scp reader-buddy root@10.11.99.1:/home/root/reader-buddy
+# SSH into reMarkable and create the directory
+ssh root@10.11.99.1 "mkdir -p /opt/bin"
+
+# Copy the binary to the proper location
+scp reader-buddy root@10.11.99.1:/opt/bin/reader-buddy
 
 # Or if building from source:
-scp target/armv7-unknown-linux-gnueabihf/release/reader-buddy root@10.11.99.1:/home/root/reader-buddy
+scp target/armv7-unknown-linux-gnueabihf/release/reader-buddy root@10.11.99.1:/opt/bin/reader-buddy
 # For Paper Pro use: target/aarch64-unknown-linux-gnu/release/reader-buddy
+
+# Make sure it's executable
+ssh root@10.11.99.1 "chmod +x /opt/bin/reader-buddy"
 ```
 
 **1. Create the systemd service file:**
@@ -191,7 +197,7 @@ Wants=xochitl.service
 [Service]
 Type=simple
 Environment="OPENAI_API_KEY=your-api-key-here"
-ExecStart=/home/root/reader-buddy
+ExecStart=/opt/bin/reader-buddy
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -281,7 +287,7 @@ journalctl -u reader-buddy.service -f
 **Tip**: If logs aren't appearing, ensure `StandardOutput=journal` and `StandardError=journal` are set in the service file. You can also add `--log-level debug` to the `ExecStart` line for more verbose output:
 
 ```bash
-ExecStart=/home/root/reader-buddy --log-level debug
+ExecStart=/opt/bin/reader-buddy --log-level debug
 ```
 
 ## Development
@@ -400,7 +406,7 @@ Replace `10.11.99.1` with your reMarkable's IP address. You can find the IP addr
 SSH into your reMarkable and remove the binary:
 ```bash
 ssh root@10.11.99.1
-rm -f ~/reader-buddy
+rm -f /opt/bin/reader-buddy
 ```
 
 ### Cleaning up debug files
@@ -411,18 +417,18 @@ ssh root@10.11.99.1
 rm -f /tmp/reader-buddy-*.png
 ```
 
-### Removing persistent state
+### Removing cache files
 
-Reader Buddy stores a header pattern to recognize existing answer pages. To reset this:
+Reader Buddy stores cached data (like the header pattern for recognizing answer pages) in `/var/cache/reader-buddy/`. The cache is automatically cleared on each startup, but you can manually clear it:
 ```bash
 ssh root@10.11.99.1
-rm -f /home/root/.reader-buddy-header-pattern.png
+rm -rf /var/cache/reader-buddy/
 ```
 
 ### Complete cleanup (all at once)
 
 ```bash
-ssh root@10.11.99.1 "rm -f ~/reader-buddy /tmp/reader-buddy-*.png /home/root/.reader-buddy-header-pattern.png"
+ssh root@10.11.99.1 "rm -f /opt/bin/reader-buddy /tmp/reader-buddy-*.png && rm -rf /var/cache/reader-buddy/"
 ```
 
 ### Stopping a running instance

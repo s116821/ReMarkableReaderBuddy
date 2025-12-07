@@ -24,6 +24,16 @@
 ### To-dos
 
 - [ ] Remove auto page creation and toolbar/menu usage
-- [ ] Implement failure X on origin page bottom-right (~150px)
+- [x] Implement failure X on origin page bottom-right (~50px) - Updated: Changed from 150px to 50px for better visual
 - [ ] Adjust page check: accept blank or QA header
 - [ ] Document new workflow/expectations in README
+
+### Implementation Updates (Dec 7, 2025)
+
+**QA Page Header Fixes:**
+- Removed duplicate `key_cmd_body()` calls in `orchestrator.rs` that were causing extra blank space before the header text
+- Removed extra `\n\n` from the header text string (render_text already adds trailing newlines)
+- These fixes address false positive header matching with other pages due to too much leading blank space in the header pattern
+
+**Failure X Size Update:**
+- Changed X_SIZE from 150x150 to 50x50 pixels for a smaller, less intrusive failure indicator
