@@ -163,7 +163,7 @@ tail -f reader-buddy.log
 pkill reader-buddy
 ```
 
-### Run at Boot (systemd)
+## Run at Boot (systemd)
 
 To have Reader Buddy start automatically when your reMarkable boots:
 

@@ -24,6 +24,14 @@ const CACHE_DIR: &str = "/var/cache/reader-buddy";
 /// Path to the cached header pattern image
 const HEADER_PATTERN_PATH: &str = "/var/cache/reader-buddy/header-pattern.png";
 
+// Image comparison mask constants - skip UI elements that can change between screenshots
+/// Skip left toolbar area during image comparisons
+pub const MASK_LEFT_OFFSET: u32 = 75;
+/// Skip top-right X button area during image comparisons
+pub const MASK_TOP_RIGHT_SIZE: u32 = 50;
+/// Skip bottom HUD area during image comparisons
+pub const MASK_BOTTOM_OFFSET: u32 = 70;
+
 /// Main workflow coordinator
 pub struct Workflow {
     screenshot: Screenshot,
@@ -50,8 +58,9 @@ impl Workflow {
     }
     
     /// Initialize the cache directory
-    /// Creates the directory if it doesn't exist and clears any cached files from previous runs
-    /// This ensures a clean state on startup (important when upgrading between versions)
+    /// Creates the directory if it doesn't exist
+    /// Note: We intentionally preserve cached files (like header patterns) across restarts
+    /// so that existing QA pages can still be recognized after a service restart
     fn init_cache() -> Result<()> {
         use std::fs;
         
@@ -64,20 +73,6 @@ impl Workflow {
                 // Log error but don't fail - cache is optional
                 warn!("Failed to create cache directory {}: {}", CACHE_DIR, e);
                 return Ok(());
-            }
-        }
-        
-        // Clear any existing cached files to ensure clean state on startup
-        if let Ok(entries) = fs::read_dir(CACHE_DIR) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    if let Err(e) = fs::remove_file(&path) {
-                        warn!("Failed to remove cached file {:?}: {}", path, e);
-                    } else {
-                        debug!("Cleared cached file: {:?}", path);
-                    }
-                }
             }
         }
         
@@ -370,9 +365,6 @@ impl Workflow {
         let gray = img.to_luma8();
         let (width, _height) = gray.dimensions();
         
-        // Mask constants - skip left toolbar and top-right close button
-        const LEFT_OFFSET: u32 = 75; // Skip left toolbar area
-        const TOP_RIGHT_SIZE: u32 = 50; // Skip top-right X button area
         
         // Check 1: Is it a blank page?
         // Count dark pixels (ink) - blank pages have very few ink pixels
@@ -382,12 +374,16 @@ impl Workflow {
         let mut ink_count: u64 = 0;
         let mut total_count: u64 = 0;
         
-        // Sample every other pixel for accuracy, skip left toolbar and top-right button
+        let height = gray.height();
+        
+        // Sample every other pixel for accuracy, skip left toolbar, top-right button, and bottom HUD
         for (x, y, pixel) in gray.enumerate_pixels() {
             // Skip left toolbar
-            if x < LEFT_OFFSET { continue; }
+            if x < MASK_LEFT_OFFSET { continue; }
             // Skip top-right corner (close button)
-            if x >= width - TOP_RIGHT_SIZE && y < TOP_RIGHT_SIZE { continue; }
+            if x >= width - MASK_TOP_RIGHT_SIZE && y < MASK_TOP_RIGHT_SIZE { continue; }
+            // Skip bottom HUD area
+            if y >= height - MASK_BOTTOM_OFFSET { continue; }
             // Sample every other pixel
             if x % 2 != 0 || y % 2 != 0 { continue; }
             
@@ -420,9 +416,10 @@ impl Workflow {
         if let Ok(saved_pattern_data) = std::fs::read(HEADER_PATTERN_PATH) {
             if let Ok(saved_pattern) = image::load_from_memory(&saved_pattern_data) {
                 // Use masked similarity comparison (same masks as blank check)
-                let similarity = Self::compute_image_similarity_masked(&header_img, &saved_pattern, LEFT_OFFSET, TOP_RIGHT_SIZE);
+                // Note: bottom_offset is 0 for header comparison since header is already cropped
+                let similarity = Self::compute_image_similarity_masked(&header_img, &saved_pattern, MASK_LEFT_OFFSET, MASK_TOP_RIGHT_SIZE, 0);
                 
-                const SIMILARITY_THRESHOLD: f32 = 0.999;
+                const SIMILARITY_THRESHOLD: f32 = 0.998;
                 info!("QA header check: similarity {:.2}% (threshold: {:.1}%)", similarity * 100.0, SIMILARITY_THRESHOLD * 100.0);
                 
                 if similarity >= SIMILARITY_THRESHOLD {
@@ -449,42 +446,11 @@ impl Workflow {
         
         Ok(())
     }
-    
-    /// Compute similarity between two images (returns 0.0-1.0, where 1.0 is identical)
-    /// Used internally for header pattern matching
-    fn compute_image_similarity(img1: &image::DynamicImage, img2: &image::DynamicImage) -> f32 {
-        let gray1 = img1.to_luma8();
-        let gray2 = img2.to_luma8();
-        
-        if gray1.dimensions() != gray2.dimensions() {
-            return 0.0;
-        }
-        
-        let mut total_diff: u64 = 0;
-        let mut pixel_count: u64 = 0;
-        
-        // Sample every 5th pixel for speed
-        for (y, row) in gray1.enumerate_rows() {
-            if y % 5 != 0 { continue; }
-            for (x, _, pixel1) in row {
-                if x % 5 != 0 { continue; }
-                let pixel2 = gray2.get_pixel(x, y);
-                let diff = (pixel1[0] as i32 - pixel2[0] as i32).abs() as u64;
-                total_diff += diff * diff;
-                pixel_count += 1;
-            }
-        }
-        
-        if pixel_count == 0 { return 0.0; }
-        
-        let mse = total_diff as f32 / pixel_count as f32;
-        let max_mse = 255.0 * 255.0;
-        1.0 - (mse / max_mse).min(1.0)
-    }
+
     
     /// Compute similarity between two images with masking (returns 0.0-1.0, where 1.0 is identical)
-    /// Skips left toolbar area and top-right close button area
-    fn compute_image_similarity_masked(img1: &image::DynamicImage, img2: &image::DynamicImage, left_offset: u32, top_right_size: u32) -> f32 {
+    /// Skips left toolbar area, top-right close button area, and bottom HUD area
+    pub fn compute_image_similarity_masked(img1: &image::DynamicImage, img2: &image::DynamicImage, left_offset: u32, top_right_size: u32, bottom_offset: u32) -> f32 {
         let gray1 = img1.to_luma8();
         let gray2 = img2.to_luma8();
         
@@ -492,7 +458,7 @@ impl Workflow {
             return 0.0;
         }
         
-        let (width, _height) = gray1.dimensions();
+        let (width, height) = gray1.dimensions();
         let mut total_diff: u64 = 0;
         let mut pixel_count: u64 = 0;
         
@@ -505,6 +471,8 @@ impl Workflow {
                 if x < left_offset { continue; }
                 // Skip top-right corner (close button)
                 if x >= width - top_right_size && y < top_right_size { continue; }
+                // Skip bottom HUD area
+                if y >= height - bottom_offset { continue; }
                 
                 let pixel2 = gray2.get_pixel(x, y);
                 let diff = (pixel1[0] as i32 - pixel2[0] as i32).abs() as u64;

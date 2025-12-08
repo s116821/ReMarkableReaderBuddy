@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::{debug, error, info};
 
-use super::{AnswerPageType, Workflow};
+use super::{AnswerPageType, Workflow, MASK_LEFT_OFFSET, MASK_TOP_RIGHT_SIZE, MASK_BOTTOM_OFFSET};
 use crate::analysis::BoundingBox;
 use crate::llm::{openai::OpenAI, LLMEngine};
 
@@ -213,7 +213,7 @@ impl Orchestrator {
         let current_png = self.workflow.screenshot.get_image_data().to_vec();
         let current_img = image::load_from_memory(&current_png)?;
         
-        let similarity_to_original = Self::compute_image_similarity(&original_img, &current_img);
+        let similarity_to_original = Workflow::compute_image_similarity_masked(&original_img, &current_img, MASK_LEFT_OFFSET, MASK_TOP_RIGHT_SIZE, MASK_BOTTOM_OFFSET);
         debug!("Similarity to original page: {:.2}%", similarity_to_original * 100.0);
         
         // If we're still very similar to original (>99.9%), we didn't actually navigate
@@ -303,7 +303,7 @@ impl Orchestrator {
             let current_png = self.workflow.screenshot.get_image_data();
             let current_img = image::load_from_memory(current_png)?;
             
-            let similarity = Self::compute_image_similarity(original_img, &current_img);
+            let similarity = Workflow::compute_image_similarity_masked(original_img, &current_img, MASK_LEFT_OFFSET, MASK_TOP_RIGHT_SIZE, MASK_BOTTOM_OFFSET);
             debug!("Similarity to original: {:.2}%", similarity * 100.0);
             
             if similarity >= SAME_PAGE_THRESHOLD {
@@ -317,37 +317,6 @@ impl Orchestrator {
         Ok(())
     }
     
-    /// Compute similarity between two images (returns 0.0-1.0, where 1.0 is identical)
-    fn compute_image_similarity(img1: &image::DynamicImage, img2: &image::DynamicImage) -> f32 {
-        let gray1 = img1.to_luma8();
-        let gray2 = img2.to_luma8();
-        
-        if gray1.dimensions() != gray2.dimensions() {
-            return 0.0;
-        }
-        
-        let mut total_diff: u64 = 0;
-        let mut pixel_count: u64 = 0;
-        
-        // Sample every 10th pixel for speed
-        for (y, row) in gray1.enumerate_rows() {
-            if y % 10 != 0 { continue; }
-            for (x, _, pixel1) in row {
-                if x % 10 != 0 { continue; }
-                let pixel2 = gray2.get_pixel(x, y);
-                let diff = (pixel1[0] as i32 - pixel2[0] as i32).abs() as u64;
-                total_diff += diff * diff;
-                pixel_count += 1;
-            }
-        }
-        
-        if pixel_count == 0 { return 0.0; }
-        
-        let mse = total_diff as f32 / pixel_count as f32;
-        let max_mse = 255.0 * 255.0;
-        1.0 - (mse / max_mse).min(1.0)
-    }
-
     /// Run the main loop
     pub fn run_loop(&mut self) -> Result<()> {
         info!("Starting Reader Buddy main loop");
