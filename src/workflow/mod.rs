@@ -5,7 +5,12 @@ pub mod xochitl_integration;
 use anyhow::Result;
 use log::{debug, info, warn};
 
-use crate::device::{keyboard::Keyboard, pen::Pen, screenshot::Screenshot, touch::Touch};
+use crate::device::{
+    keyboard::Keyboard, 
+    pen::Pen, 
+    screenshot::{Screenshot, SCREENSHOT_VIRTUAL_HEIGHT, SCREENSHOT_VIRTUAL_WIDTH}, 
+    touch::Touch
+};
 
 /// Result of checking if a page is valid for rendering answers
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -25,12 +30,20 @@ const CACHE_DIR: &str = "/var/cache/reader-buddy";
 const HEADER_PATTERN_PATH: &str = "/var/cache/reader-buddy/header-pattern.png";
 
 // Image comparison mask constants - skip UI elements that can change between screenshots
+// These are in virtual coordinates (768x1024) and work for all devices since screenshots are normalized
 /// Skip left toolbar area during image comparisons
-pub const MASK_LEFT_OFFSET: u32 = 75;
-/// Skip top-right X button area during image comparisons
-pub const MASK_TOP_RIGHT_SIZE: u32 = 50;
+pub const MASK_LEFT_OFFSET: u32 = 298;
+/// Skip right side during image comparisons (scrollbar, UI elements)
+pub const MASK_RIGHT_OFFSET: u32 = 125;
+/// Skip top area during image comparisons (toolbar can be docked at top)
+pub const MASK_TOP_OFFSET: u32 = 70;
 /// Skip bottom HUD area during image comparisons
 pub const MASK_BOTTOM_OFFSET: u32 = 70;
+
+/// Default sampling rate for image comparisons (every Nth pixel)
+const DEFAULT_SAMPLE_RATE: u32 = 5;
+/// Sampling rate for blank page detection (more accurate, every 2nd pixel)
+const BLANK_PAGE_SAMPLE_RATE: u32 = 2;
 
 /// Main workflow coordinator
 pub struct Workflow {
@@ -362,46 +375,26 @@ impl Workflow {
             }
         };
         
-        let gray = img.to_luma8();
-        let (width, _height) = gray.dimensions();
-        
-        
         // Check 1: Is it a blank page?
-        // Count dark pixels (ink) - blank pages have very few ink pixels
-        const INK_THRESHOLD: u8 = 200; // Pixels darker than this are ink
-        const MAX_INK_RATIO: f32 = 0.001; // Allow up to 0.1% ink (page numbers at bottom)
+        // Compare against a synthetic blank (white) image using masked similarity
+        let blank_img = Self::create_blank_image();
+        let blank_similarity = Self::compute_image_similarity_masked(
+            &img,
+            &blank_img,
+            MASK_LEFT_OFFSET,
+            MASK_RIGHT_OFFSET,
+            MASK_TOP_OFFSET,
+            MASK_BOTTOM_OFFSET,
+            BLANK_PAGE_SAMPLE_RATE,
+        );
         
-        let mut ink_count: u64 = 0;
-        let mut total_count: u64 = 0;
+        // Threshold for considering a page "blank" (99.8% similar to white)
+        const BLANK_THRESHOLD: f32 = 0.998;
         
-        let height = gray.height();
+        info!("Blank page check: similarity to blank {:.2}% (threshold: {:.1}%)", 
+              blank_similarity * 100.0, BLANK_THRESHOLD * 100.0);
         
-        // Sample every other pixel for accuracy, skip left toolbar, top-right button, and bottom HUD
-        for (x, y, pixel) in gray.enumerate_pixels() {
-            // Skip left toolbar
-            if x < MASK_LEFT_OFFSET { continue; }
-            // Skip top-right corner (close button)
-            if x >= width - MASK_TOP_RIGHT_SIZE && y < MASK_TOP_RIGHT_SIZE { continue; }
-            // Skip bottom HUD area
-            if y >= height - MASK_BOTTOM_OFFSET { continue; }
-            // Sample every other pixel
-            if x % 2 != 0 || y % 2 != 0 { continue; }
-            
-            total_count += 1;
-            if pixel[0] < INK_THRESHOLD {
-                ink_count += 1;
-            }
-        }
-        
-        let ink_ratio = if total_count > 0 {
-            ink_count as f32 / total_count as f32
-        } else {
-            0.0
-        };
-        
-        info!("Blank page check: ink ratio {:.3}% (threshold: {:.1}%)", ink_ratio * 100.0, MAX_INK_RATIO * 100.0);
-        
-        if ink_ratio <= MAX_INK_RATIO {
+        if blank_similarity >= BLANK_THRESHOLD {
             info!("Page is BLANK - VALID");
             return Ok(AnswerPageType::Blank);
         }
@@ -415,9 +408,17 @@ impl Workflow {
         // Try fast pattern matching (if we have a saved pattern)
         if let Ok(saved_pattern_data) = std::fs::read(HEADER_PATTERN_PATH) {
             if let Ok(saved_pattern) = image::load_from_memory(&saved_pattern_data) {
-                // Use masked similarity comparison (same masks as blank check)
-                // Note: bottom_offset is 0 for header comparison since header is already cropped
-                let similarity = Self::compute_image_similarity_masked(&header_img, &saved_pattern, MASK_LEFT_OFFSET, MASK_TOP_RIGHT_SIZE, 0);
+                // Use masked similarity comparison
+                // Note: top_offset and bottom_offset are 0 for header comparison since header is already cropped
+                let similarity = Self::compute_image_similarity_masked(
+                    &header_img, 
+                    &saved_pattern, 
+                    MASK_LEFT_OFFSET,
+                    MASK_RIGHT_OFFSET,
+                    0, 
+                    0,
+                    DEFAULT_SAMPLE_RATE,
+                );
                 
                 const SIMILARITY_THRESHOLD: f32 = 0.998;
                 info!("QA header check: similarity {:.2}% (threshold: {:.1}%)", similarity * 100.0, SIMILARITY_THRESHOLD * 100.0);
@@ -449,8 +450,20 @@ impl Workflow {
 
     
     /// Compute similarity between two images with masking (returns 0.0-1.0, where 1.0 is identical)
-    /// Skips left toolbar area, top-right close button area, and bottom HUD area
-    pub fn compute_image_similarity_masked(img1: &image::DynamicImage, img2: &image::DynamicImage, left_offset: u32, top_right_size: u32, bottom_offset: u32) -> f32 {
+    /// Skips left/right toolbar areas, top area (for docked toolbar), and bottom HUD area
+    /// Note: For full-page comparisons, images are always 768x1024 (virtual coordinates)
+    /// 
+    /// # Arguments
+    /// * `sample_rate` - Sample every Nth pixel (lower = more accurate but slower)
+    pub fn compute_image_similarity_masked(
+        img1: &image::DynamicImage, 
+        img2: &image::DynamicImage, 
+        left_offset: u32,
+        right_offset: u32,
+        top_offset: u32, 
+        bottom_offset: u32,
+        sample_rate: u32,
+    ) -> f32 {
         let gray1 = img1.to_luma8();
         let gray2 = img2.to_luma8();
         
@@ -458,19 +471,23 @@ impl Workflow {
             return 0.0;
         }
         
-        let (width, height) = gray1.dimensions();
+        // Get dimensions for offset calculations (needed for cropped images)
+        let width = gray1.width();
+        let height = gray1.height();
         let mut total_diff: u64 = 0;
         let mut pixel_count: u64 = 0;
         
-        // Sample every 5th pixel for speed, with masking
+        // Sample every Nth pixel for speed, with masking
         for (y, row) in gray1.enumerate_rows() {
-            if y % 5 != 0 { continue; }
+            if y % sample_rate != 0 { continue; }
             for (x, _, pixel1) in row {
-                if x % 5 != 0 { continue; }
-                // Skip left toolbar
+                if x % sample_rate != 0 { continue; }
+                // Skip left side
                 if x < left_offset { continue; }
-                // Skip top-right corner (close button)
-                if x >= width - top_right_size && y < top_right_size { continue; }
+                // Skip right side
+                if x >= width - right_offset { continue; }
+                // Skip top area (toolbar can be docked at top)
+                if y < top_offset { continue; }
                 // Skip bottom HUD area
                 if y >= height - bottom_offset { continue; }
                 
@@ -486,5 +503,15 @@ impl Workflow {
         let mse = total_diff as f32 / pixel_count as f32;
         let max_mse = 255.0 * 255.0;
         1.0 - (mse / max_mse).min(1.0)
+    }
+    
+    /// Create a synthetic blank (white) image for comparison
+    fn create_blank_image() -> image::DynamicImage {
+        let white_img = image::GrayImage::from_pixel(
+            SCREENSHOT_VIRTUAL_WIDTH, 
+            SCREENSHOT_VIRTUAL_HEIGHT, 
+            image::Luma([255u8])
+        );
+        image::DynamicImage::ImageLuma8(white_img)
     }
 }

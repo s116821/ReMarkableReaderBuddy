@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::{debug, error, info};
 
-use super::{AnswerPageType, Workflow, MASK_LEFT_OFFSET, MASK_TOP_RIGHT_SIZE, MASK_BOTTOM_OFFSET};
+use super::{AnswerPageType, Workflow, MASK_LEFT_OFFSET, MASK_RIGHT_OFFSET, MASK_TOP_OFFSET, MASK_BOTTOM_OFFSET};
 use crate::analysis::BoundingBox;
 use crate::llm::{openai::OpenAI, LLMEngine};
 
@@ -213,7 +213,15 @@ impl Orchestrator {
         let current_png = self.workflow.screenshot.get_image_data().to_vec();
         let current_img = image::load_from_memory(&current_png)?;
         
-        let similarity_to_original = Workflow::compute_image_similarity_masked(&original_img, &current_img, MASK_LEFT_OFFSET, MASK_TOP_RIGHT_SIZE, MASK_BOTTOM_OFFSET);
+        let similarity_to_original = Workflow::compute_image_similarity_masked(
+            &original_img, 
+            &current_img, 
+            MASK_LEFT_OFFSET,
+            MASK_RIGHT_OFFSET,
+            MASK_TOP_OFFSET, 
+            MASK_BOTTOM_OFFSET,
+            5, // Default sample rate
+        );
         debug!("Similarity to original page: {:.2}%", similarity_to_original * 100.0);
         
         // If we're still very similar to original (>99.9%), we didn't actually navigate
@@ -292,8 +300,10 @@ impl Orchestrator {
         const MAX_ATTEMPTS: u32 = 3;
         const SAME_PAGE_THRESHOLD: f32 = 0.999;
         
+        info!("Attempting to return to original page (threshold: {:.1}%)", SAME_PAGE_THRESHOLD * 100.0);
+        
         for attempt in 1..=MAX_ATTEMPTS {
-            debug!("Attempting to return to original page (attempt {})", attempt);
+            info!("Return attempt {}/{}: navigating to previous page...", attempt, MAX_ATTEMPTS);
             
             self.workflow.navigate_to_previous_page()?;
             std::thread::sleep(std::time::Duration::from_millis(800));
@@ -303,17 +313,27 @@ impl Orchestrator {
             let current_png = self.workflow.screenshot.get_image_data();
             let current_img = image::load_from_memory(current_png)?;
             
-            let similarity = Workflow::compute_image_similarity_masked(original_img, &current_img, MASK_LEFT_OFFSET, MASK_TOP_RIGHT_SIZE, MASK_BOTTOM_OFFSET);
-            debug!("Similarity to original: {:.2}%", similarity * 100.0);
+            let similarity = Workflow::compute_image_similarity_masked(
+                original_img, 
+                &current_img, 
+                MASK_LEFT_OFFSET,
+                MASK_RIGHT_OFFSET,
+                MASK_TOP_OFFSET, 
+                MASK_BOTTOM_OFFSET,
+                5, // Default sample rate
+            );            
             
             if similarity >= SAME_PAGE_THRESHOLD {
-                info!("Confirmed back on original page (similarity: {:.1}%)", similarity * 100.0);
+                info!("Confirmed back on original page");
                 return Ok(());
+            } else {
+                info!("Return attempt {}/{}: Failed -> similarity to original = {:.2}% (need >= {:.1}%), retrying...", 
+                      attempt, MAX_ATTEMPTS,similarity * 100.0, SAME_PAGE_THRESHOLD * 100.0);
             }
         }
         
         // If we couldn't get back, log warning but continue
-        log::warn!("Could not confirm return to original page after {} attempts", MAX_ATTEMPTS);
+        log::warn!("Could not confirm return to original page after {} attempts - proceeding anyway", MAX_ATTEMPTS);
         Ok(())
     }
     

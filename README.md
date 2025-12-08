@@ -15,7 +15,7 @@ An AI-powered reading assistant for the reMarkable tablet that watches for circl
 1. **Prepare Answer Page**: Before triggering, create a blank page to the **right** of your question page
 2. **Outline Content**: Draw any closed shape (circle, rectangle, etc.) around content you want to ask about
 3. **Write Question**: Write your question near the outlined content
-4. **Trigger**: Touch the **lower-right corner** of your reMarkable screen with your hand
+4. **Trigger**: Touch and **hold for 3 seconds** in the **lower-left corner** of your reMarkable screen
 5. **Capture**: The app takes a screenshot of your current page
 6. **AI Magic**: Single ChatGPT vision call detects outline, reads question, and generates answer (all in one!)
 7. **Page Check**: App navigates right and checks for a valid answer page:
@@ -115,7 +115,7 @@ Options:
   --once                    Run once instead of looping
   --input-png <FILE>        Use image file instead of screenshot
   --save-screenshot <FILE>  Save screenshot to file
-  --trigger-corner <CORNER> Trigger corner: UR, UL, LR, LL [default: LR]
+  --trigger-corner <CORNER> Trigger corner: UR, UL, LR, LL [default: LL]
   --log-level <LEVEL>       Log level [default: info]
   --debug-dump              Save debug images to /tmp for troubleshooting
   -h, --help                Print help
@@ -136,7 +136,7 @@ Options:
 # Use different model
 ./reader-buddy --model gpt-4o-mini
 
-# Change trigger corner to upper-right (default is lower-right)
+# Change trigger corner to upper-right (default is lower-left)
 ./reader-buddy --trigger-corner UR
 ```
 
@@ -350,10 +350,11 @@ Set the environment variable: `export OPENAI_API_KEY=your-key`
 - Ensure the outline is complete (no gaps)
 
 ### Touch trigger not working
-- Verify the trigger corner setting (default is **lower-right**)
+- Verify the trigger corner setting (default is **lower-left**)
 - Make sure you're using your hand/finger, not the pen
+- **Hold for 3 full seconds** - a quick tap won't trigger
 - The trigger zone is 68x68 pixels in the specified corner
-- Try touching and holding for a moment before releasing
+- Keep your finger still in the zone for the full duration
 
 ### X appears on my question page instead of answer
 If you see an X drawn in the bottom-right corner of your question page, it means the app could not find a valid answer page. This happens when:
@@ -417,13 +418,21 @@ ssh root@10.11.99.1
 rm -f /tmp/reader-buddy-*.png
 ```
 
-### Removing cache files
+### Clearing the cache
 
-Reader Buddy stores cached data (like the header pattern for recognizing answer pages) in `/var/cache/reader-buddy/`. The cache is automatically cleared on each startup, but you can manually clear it:
+Reader Buddy stores cached data in `/var/cache/reader-buddy/`, including the header pattern used to recognize existing answer pages across service restarts.
+
+**When to clear the cache:**
+- If answer page detection stops working correctly
+- After changing the "=== Reader Buddy Answers ===" header format
+- To force Reader Buddy to re-learn what an answer page looks like
+
 ```bash
 ssh root@10.11.99.1
 rm -rf /var/cache/reader-buddy/
 ```
+
+After clearing the cache, the next blank page you use will become the new reference pattern.
 
 ### Complete cleanup (all at once)
 
