@@ -194,7 +194,10 @@ impl Screenshot {
         let png_data = self.encode_png(&data)?;
 
         // Resize the PNG to SCREENSHOT_VIRTUAL_WIDTH x SCREENSHOT_VIRTUAL_HEIGHT
-        debug!("Resizing image to {}x{}", SCREENSHOT_VIRTUAL_WIDTH, SCREENSHOT_VIRTUAL_HEIGHT);
+        debug!(
+            "Resizing image to {}x{}",
+            SCREENSHOT_VIRTUAL_WIDTH, SCREENSHOT_VIRTUAL_HEIGHT
+        );
         let img = image::load_from_memory(&png_data)?;
         let resized_img = img.resize_exact(
             SCREENSHOT_VIRTUAL_WIDTH,

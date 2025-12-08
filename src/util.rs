@@ -21,7 +21,8 @@ pub fn svg_to_bitmap(svg_data: &str, width: u32, height: u32) -> Result<Vec<Vec<
             info!("Error parsing SVG: {}. Using fallback SVG.", e);
             let fallback_svg = format!(
                 r#"<svg width='{width}' height='{height}' xmlns='http://www.w3.org/2000/svg'><circle cx='{}' cy='{}' r='10' fill='black'/></svg>"#,
-                width / 2, height / 2
+                width / 2,
+                height / 2
             );
             Tree::from_str(&fallback_svg, &opt)?
         }
@@ -47,7 +48,11 @@ pub fn write_bitmap_to_file(bitmap: &[Vec<bool>], filename: &str) -> Result<()> 
 
     for (y, row) in bitmap.iter().enumerate() {
         for (x, &pixel) in row.iter().enumerate() {
-            img.put_pixel(x as u32, y as u32, image::Luma([if pixel { 0 } else { 255 }]));
+            img.put_pixel(
+                x as u32,
+                y as u32,
+                image::Luma([if pixel { 0 } else { 255 }]),
+            );
         }
     }
 
@@ -55,4 +60,3 @@ pub fn write_bitmap_to_file(bitmap: &[Vec<bool>], filename: &str) -> Result<()> 
     debug!("Bitmap saved to {}", filename);
     Ok(())
 }
-

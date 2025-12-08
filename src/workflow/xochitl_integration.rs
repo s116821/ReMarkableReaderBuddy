@@ -18,17 +18,17 @@ impl XochitlIntegration {
         sleep(Duration::from_millis(500)); // Wait for page transition
         Ok(())
     }
-    
+
     /// Swipe left (go to next page)
     fn swipe_left(touch: &mut Touch) -> Result<()> {
         debug!("Swiping left to next page");
         let start_x = 700;
         let start_y = 512;
         let end_x = 100;
-        
+
         touch.touch_start((start_x, start_y))?;
         sleep(Duration::from_millis(50));
-        
+
         // Interpolate between start and end
         let steps = 15; // More steps for smoother gesture
         for i in 1..=steps {
@@ -37,21 +37,21 @@ impl XochitlIntegration {
             touch.goto_xy((x, start_y))?;
             sleep(Duration::from_millis(10));
         }
-        
+
         touch.touch_stop()?;
         Ok(())
     }
-    
+
     /// Swipe right (go to previous page)
     fn swipe_right(touch: &mut Touch) -> Result<()> {
         debug!("Swiping right to previous page");
         let start_x = 100;
         let start_y = 512;
         let end_x = 700;
-        
+
         touch.touch_start((start_x, start_y))?;
         sleep(Duration::from_millis(50));
-        
+
         // Interpolate between start and end
         let steps = 15;
         for i in 1..=steps {
@@ -60,7 +60,7 @@ impl XochitlIntegration {
             touch.goto_xy((x, start_y))?;
             sleep(Duration::from_millis(10));
         }
-        
+
         touch.touch_stop()?;
         Ok(())
     }

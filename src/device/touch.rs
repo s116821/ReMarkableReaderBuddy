@@ -1,7 +1,6 @@
 use anyhow::Result;
 use log::info;
 
-
 #[cfg(target_os = "linux")]
 use std::thread::sleep;
 
@@ -90,16 +89,19 @@ impl Touch {
 
     pub fn wait_for_trigger(&mut self) -> Result<()> {
         use std::time::Instant;
-        
+
         const HOLD_DURATION_SECS: f32 = 2.0;
-        
+
         let mut position_x = 0;
         let mut position_y = 0;
         let mut hold_start: Option<Instant> = None;
         let mut in_zone = false;
-        
-        log::info!("Waiting for {:.0}s hold in trigger zone...", HOLD_DURATION_SECS);
-        
+
+        log::info!(
+            "Waiting for {:.0}s hold in trigger zone...",
+            HOLD_DURATION_SECS
+        );
+
         loop {
             // Store events in a temporary vector to avoid borrowing issues
             let mut events_to_process = Vec::new();
@@ -117,7 +119,7 @@ impl Touch {
                 if event.code() == ABS_MT_POSITION_Y {
                     position_y = event.value();
                 }
-                
+
                 // Check for touch start (tracking ID assigned)
                 if event.code() == ABS_MT_TRACKING_ID && event.value() >= 0 {
                     let (x, y) = self.input_to_virtual((position_x, position_y));
@@ -129,7 +131,7 @@ impl Touch {
                         }
                     }
                 }
-                
+
                 // Check for touch release (tracking ID becomes -1)
                 if event.code() == ABS_MT_TRACKING_ID && event.value() == -1 {
                     if in_zone {
@@ -139,7 +141,7 @@ impl Touch {
                     in_zone = false;
                 }
             }
-            
+
             // Check if touch moved out of zone while being held
             if in_zone {
                 let (x, y) = self.input_to_virtual((position_x, position_y));
@@ -149,7 +151,7 @@ impl Touch {
                     in_zone = false;
                 }
             }
-            
+
             // Check if hold duration has been reached
             if let Some(start) = hold_start {
                 let elapsed = start.elapsed().as_secs_f32();

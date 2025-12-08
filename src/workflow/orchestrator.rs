@@ -1,7 +1,10 @@
 use anyhow::Result;
 use log::{debug, error, info};
 
-use super::{AnswerPageType, Workflow, MASK_LEFT_OFFSET, MASK_RIGHT_OFFSET, MASK_TOP_OFFSET, MASK_BOTTOM_OFFSET};
+use super::{
+    AnswerPageType, Workflow, MASK_BOTTOM_OFFSET, MASK_LEFT_OFFSET, MASK_RIGHT_OFFSET,
+    MASK_TOP_OFFSET,
+};
 use crate::analysis::BoundingBox;
 use crate::llm::{openai::OpenAI, LLMEngine};
 
@@ -22,10 +25,7 @@ pub struct Orchestrator {
 
 impl Orchestrator {
     pub fn new(workflow: Workflow, llm: OpenAI) -> Self {
-        Self {
-            workflow,
-            llm,
-        }
+        Self { workflow, llm }
     }
 
     /// Run one complete iteration of the reader buddy workflow
@@ -37,13 +37,15 @@ impl Orchestrator {
         self.workflow.wait_for_trigger()?;
 
         // Step 2: Capture screenshot (of current/question page)
-        let (screenshot_base64, screenshot_png_data) = self.workflow.capture_screenshot_with_data()?;
+        let (screenshot_base64, screenshot_png_data) =
+            self.workflow.capture_screenshot_with_data()?;
 
         // Step 3: Single LLM call does everything:
         // - Detect outlined region
         // - Extract question text
         // - Generate answer
-        let result = self.analyze_and_answer_single_call(&screenshot_base64, screenshot_png_data)?;
+        let result =
+            self.analyze_and_answer_single_call(&screenshot_base64, screenshot_png_data)?;
 
         match result {
             None => {
@@ -187,7 +189,7 @@ impl Orchestrator {
     }
 
     /// Render the answer on the next page
-    /// 
+    ///
     /// Simplified flow:
     /// 1. Store original page screenshot for later comparison
     /// 2. Navigate right to next page  
@@ -207,46 +209,57 @@ impl Orchestrator {
         // Step 2: Attempt to navigate to next page
         self.workflow.navigate_to_next_page()?;
         std::thread::sleep(std::time::Duration::from_millis(800));
-        
+
         // Step 3: Take screenshot and compare to original
         self.workflow.screenshot.take_screenshot()?;
         let current_png = self.workflow.screenshot.get_image_data().to_vec();
         let current_img = image::load_from_memory(&current_png)?;
-        
+
         let similarity_to_original = Workflow::compute_image_similarity_masked(
-            &original_img, 
-            &current_img, 
+            &original_img,
+            &current_img,
             MASK_LEFT_OFFSET,
             MASK_RIGHT_OFFSET,
-            MASK_TOP_OFFSET, 
+            MASK_TOP_OFFSET,
             MASK_BOTTOM_OFFSET,
             5, // Default sample rate
         );
-        debug!("Similarity to original page: {:.2}%", similarity_to_original * 100.0);
-        
+        debug!(
+            "Similarity to original page: {:.2}%",
+            similarity_to_original * 100.0
+        );
+
         // If we're still very similar to original (>99.9%), we didn't actually navigate
         const SAME_PAGE_THRESHOLD: f32 = 0.999;
         let did_navigate = similarity_to_original < SAME_PAGE_THRESHOLD;
-        
+
         if !did_navigate {
-            info!("No page exists to the right (similarity {:.1}% >= {:.1}%) - drawing X on original", 
-                  similarity_to_original * 100.0, SAME_PAGE_THRESHOLD * 100.0);
+            info!(
+                "No page exists to the right (similarity {:.1}% >= {:.1}%) - drawing X on original",
+                similarity_to_original * 100.0,
+                SAME_PAGE_THRESHOLD * 100.0
+            );
             // We're confirmed still on original page, draw failure X
             self.workflow.draw_failure_x()?;
             return Ok(());
         }
-        
-        info!("Navigation successful (similarity {:.1}% < {:.1}%)", 
-              similarity_to_original * 100.0, SAME_PAGE_THRESHOLD * 100.0);
-        
+
+        info!(
+            "Navigation successful (similarity {:.1}% < {:.1}%)",
+            similarity_to_original * 100.0,
+            SAME_PAGE_THRESHOLD * 100.0
+        );
+
         // Step 4: Check if the page we navigated to is valid (blank or QA)
         let page_type = self.workflow.is_valid_answer_page()?;
-        
+
         match page_type {
             AnswerPageType::Invalid => {
                 // Page exists but is not suitable - return to original
-                info!("Next page is not valid (not blank and not a QA page) - returning to original");
-                
+                info!(
+                    "Next page is not valid (not blank and not a QA page) - returning to original"
+                );
+
                 // Navigate back and verify we're on original
                 self.return_to_original_page(&original_img)?;
                 self.workflow.draw_failure_x()?;
@@ -255,20 +268,26 @@ impl Orchestrator {
             AnswerPageType::Blank => {
                 // Step 5a: Blank page - render header first, then Q&A
                 info!("Blank page found, rendering header and Q&A");
-                
+
                 // Switch to body text mode once before all rendering
                 self.workflow.set_body_text_mode()?;
-                
+
                 // Header with two blank lines before first Q&A block
-                self.workflow.render_text("=== Reader Buddy Answers ===\n\n\n")?;
-                
+                self.workflow
+                    .render_text("=== Reader Buddy Answers ===\n\n\n")?;
+
                 // Save header pattern for future detection (only on first blank page)
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 self.workflow.screenshot.take_screenshot()?;
                 let new_png = self.workflow.screenshot.get_image_data();
                 if let Ok(new_img) = image::load_from_memory(new_png) {
                     const HEADER_HEIGHT: u32 = 150; // Capture full header region from top
-                    let header_img = new_img.crop_imm(0, 0, new_img.width(), HEADER_HEIGHT.min(new_img.height()));
+                    let header_img = new_img.crop_imm(
+                        0,
+                        0,
+                        new_img.width(),
+                        HEADER_HEIGHT.min(new_img.height()),
+                    );
                     if let Err(e) = self.workflow.save_header_pattern(&header_img) {
                         log::warn!("Failed to save header pattern: {}", e);
                     }
@@ -277,52 +296,55 @@ impl Orchestrator {
             AnswerPageType::ExistingQA => {
                 // Step 5b: Existing QA page - just append Q&A content (no header)
                 info!("Existing QA page found, appending Q&A (no header needed)");
-                
+
                 // Switch to body text mode
                 self.workflow.set_body_text_mode()?;
             }
         }
-        
+
         // Render the Q&A
-        let formatted_output = format!(
-            "Q: {}\n\nA: {}\n---\n",
-            result.question, result.answer
-        );
+        let formatted_output = format!("Q: {}\n\nA: {}\n---\n", result.question, result.answer);
 
         self.workflow.render_text(&formatted_output)?;
 
         info!("Q&A rendered successfully");
         Ok(())
     }
-    
+
     /// Navigate back to the original page and verify we arrived
     fn return_to_original_page(&mut self, original_img: &image::DynamicImage) -> Result<()> {
         const MAX_ATTEMPTS: u32 = 3;
         const SAME_PAGE_THRESHOLD: f32 = 0.999;
-        
-        info!("Attempting to return to original page (threshold: {:.1}%)", SAME_PAGE_THRESHOLD * 100.0);
-        
+
+        info!(
+            "Attempting to return to original page (threshold: {:.1}%)",
+            SAME_PAGE_THRESHOLD * 100.0
+        );
+
         for attempt in 1..=MAX_ATTEMPTS {
-            info!("Return attempt {}/{}: navigating to previous page...", attempt, MAX_ATTEMPTS);
-            
+            info!(
+                "Return attempt {}/{}: navigating to previous page...",
+                attempt, MAX_ATTEMPTS
+            );
+
             self.workflow.navigate_to_previous_page()?;
             std::thread::sleep(std::time::Duration::from_millis(800));
-            
+
             // Check if we're back on original
             self.workflow.screenshot.take_screenshot()?;
             let current_png = self.workflow.screenshot.get_image_data();
             let current_img = image::load_from_memory(current_png)?;
-            
+
             let similarity = Workflow::compute_image_similarity_masked(
-                original_img, 
-                &current_img, 
+                original_img,
+                &current_img,
                 MASK_LEFT_OFFSET,
                 MASK_RIGHT_OFFSET,
-                MASK_TOP_OFFSET, 
+                MASK_TOP_OFFSET,
                 MASK_BOTTOM_OFFSET,
                 5, // Default sample rate
-            );            
-            
+            );
+
             if similarity >= SAME_PAGE_THRESHOLD {
                 info!("Confirmed back on original page");
                 return Ok(());
@@ -331,12 +353,15 @@ impl Orchestrator {
                       attempt, MAX_ATTEMPTS,similarity * 100.0, SAME_PAGE_THRESHOLD * 100.0);
             }
         }
-        
+
         // If we couldn't get back, log warning but continue
-        log::warn!("Could not confirm return to original page after {} attempts - proceeding anyway", MAX_ATTEMPTS);
+        log::warn!(
+            "Could not confirm return to original page after {} attempts - proceeding anyway",
+            MAX_ATTEMPTS
+        );
         Ok(())
     }
-    
+
     /// Run the main loop
     pub fn run_loop(&mut self) -> Result<()> {
         info!("Starting Reader Buddy main loop");

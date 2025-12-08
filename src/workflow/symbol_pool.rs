@@ -78,15 +78,18 @@ impl SymbolPool {
     /// Convert symbol to bitmap for rendering using SVG
     pub fn symbol_to_bitmap(symbol: &str, size: u32) -> Vec<Vec<bool>> {
         use crate::util::svg_to_bitmap;
-        
-        debug!("Converting symbol '{}' to {}x{} bitmap using SVG", symbol, size, size);
+
+        debug!(
+            "Converting symbol '{}' to {}x{} bitmap using SVG",
+            symbol, size, size
+        );
 
         // Create SVG with the circled number symbol
         // Using large font size and centered positioning
         let font_size = (size as f32 * 0.8) as u32;
         let x = size / 2;
         let y = (size as f32 * 0.75) as u32; // Adjust vertical centering for better appearance
-        
+
         let svg_data = format!(
             r#"<svg width='{size}' height='{size}' xmlns='http://www.w3.org/2000/svg'>
                 <text x='{x}' y='{y}' font-family='Noto Sans, DejaVu Sans, sans-serif' 
