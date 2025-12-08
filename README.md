@@ -7,23 +7,23 @@ An AI-powered reading assistant for the reMarkable tablet that watches for circl
 - **Content Outline Detection**: Automatically detects content you've outlined on your reMarkable (circles, rectangles, or any closed shape)
 - **Question Extraction**: Uses vision AI to read your handwritten question near the outline
 - **Intelligent Answers**: Queries ChatGPT with the outlined content and your question
-- **New Page Creation**: Adds a blank page after the current one to display the answer
 - **On-Device Rendering**: Displays question and answer directly on your reMarkable tablet
-- **Smart Cleanup**: Erases original question and marks it with a reference symbol
-- **Symbol Linking**: Places matching reference symbols on both the original page and answer page
+- **Answer Page Detection**: Recognizes blank pages or existing answer pages for seamless Q&A flow
 
 ## How It Works
 
-1. **Outline Content**: Draw any closed shape (circle, rectangle, etc.) around content you want to ask about
-2. **Write Question**: Write your question near the outlined content
-3. **Trigger**: Touch the **lower-right corner** of your reMarkable screen with your hand
-4. **Capture**: The app takes a screenshot of your current page
-5. **AI Magic**: Single ChatGPT vision call detects outline, reads question, and generates answer (all in one!)
-6. **Create Page**: Inserts a new blank page after the current one
-7. **Render**: Displays the question and answer on the new page
-8. **Mark & Link**: Erases the original question (but leaves the outline intact), places a reference symbol (①, ②, ③, etc.) on both pages to link them
+1. **Prepare Answer Page**: Before triggering, create a blank page to the **right** of your question page
+2. **Outline Content**: Draw any closed shape (circle, rectangle, etc.) around content you want to ask about
+3. **Write Question**: Write your question near the outlined content
+4. **Trigger**: Touch and **hold for 3 seconds** in the **lower-left corner** of your reMarkable screen
+5. **Capture**: The app takes a screenshot of your current page
+6. **AI Magic**: Single ChatGPT vision call detects outline, reads question, and generates answer (all in one!)
+7. **Page Check**: App navigates right and checks for a valid answer page:
+   - **Valid**: Blank page or existing Reader Buddy answer page → renders Q&A
+   - **Invalid**: No page exists or page has other content → draws an **X** in the bottom-right corner of the original page
+8. **Render**: Displays the question and answer on the answer page (with "=== Reader Buddy Answers ===" header on first use)
 
-**Note**: Processes one outline-question pair per trigger. Future versions may support multiple pairs in a single session.
+**Important**: You must manually create a blank page to the right of your question page before triggering. The app will NOT create pages automatically.
 
 ## Installation
 
@@ -115,8 +115,9 @@ Options:
   --once                    Run once instead of looping
   --input-png <FILE>        Use image file instead of screenshot
   --save-screenshot <FILE>  Save screenshot to file
-  --trigger-corner <CORNER> Trigger corner: UR, UL, LR, LL [default: LR]
+  --trigger-corner <CORNER> Trigger corner: UR, UL, LR, LL [default: LL]
   --log-level <LEVEL>       Log level [default: info]
+  --debug-dump              Save debug images to /tmp for troubleshooting
   -h, --help                Print help
   -V, --version             Print version
 ```
@@ -135,7 +136,7 @@ Options:
 # Use different model
 ./reader-buddy --model gpt-4o-mini
 
-# Change trigger corner to upper-right (default is lower-right)
+# Change trigger corner to upper-right (default is lower-left)
 ./reader-buddy --trigger-corner UR
 ```
 
@@ -160,6 +161,133 @@ tail -f reader-buddy.log
 
 # Stop background process
 pkill reader-buddy
+```
+
+## Run at Boot (systemd)
+
+To have Reader Buddy start automatically when your reMarkable boots:
+
+**Prerequisites:** Install the binary to `/opt/bin/` on your reMarkable (standard location for optional software):
+
+```bash
+# SSH into reMarkable and create the directory
+ssh root@10.11.99.1 "mkdir -p /opt/bin"
+
+# Copy the binary to the proper location
+scp reader-buddy root@10.11.99.1:/opt/bin/reader-buddy
+
+# Or if building from source:
+scp target/armv7-unknown-linux-gnueabihf/release/reader-buddy root@10.11.99.1:/opt/bin/reader-buddy
+# For Paper Pro use: target/aarch64-unknown-linux-gnu/release/reader-buddy
+
+# Make sure it's executable
+ssh root@10.11.99.1 "chmod +x /opt/bin/reader-buddy"
+```
+
+**1. Create the systemd service file:**
+
+```bash
+ssh root@10.11.99.1
+cat > /etc/systemd/system/reader-buddy.service << 'EOF'
+[Unit]
+Description=ReMarkable Reader Buddy
+After=home.mount xochitl.service
+Wants=xochitl.service
+
+[Service]
+Type=simple
+Environment="OPENAI_API_KEY=your-api-key-here"
+ExecStart=/opt/bin/reader-buddy
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+> **Important**: Replace `your-api-key-here` with your actual OpenAI API key (starts with `sk-`).
+
+**2. Enable and start the service:**
+
+```bash
+# Reload systemd to recognize the new service
+systemctl daemon-reload
+
+# Enable the service to start at boot
+systemctl enable reader-buddy.service
+
+# Start the service now
+systemctl start reader-buddy.service
+
+# Check service status
+systemctl status reader-buddy.service
+```
+
+**3. Managing the service:**
+
+```bash
+# Stop the service
+systemctl stop reader-buddy.service
+
+# Restart the service
+systemctl restart reader-buddy.service
+
+# Disable auto-start at boot
+systemctl disable reader-buddy.service
+
+# Remove the service completely
+systemctl stop reader-buddy.service
+systemctl disable reader-buddy.service
+rm /etc/systemd/system/reader-buddy.service
+systemctl daemon-reload
+```
+
+### Viewing Logs with journalctl
+
+When running as a systemd service, logs are captured by the journal system:
+
+```bash
+# View all Reader Buddy logs
+journalctl -u reader-buddy.service
+
+# Follow logs in real-time (like tail -f)
+journalctl -u reader-buddy.service -f
+
+# View logs since last boot
+journalctl -u reader-buddy.service -b
+
+# View last 100 lines
+journalctl -u reader-buddy.service -n 100
+
+# View logs from the last hour
+journalctl -u reader-buddy.service --since "1 hour ago"
+
+# View logs with timestamps
+journalctl -u reader-buddy.service -o short-precise
+
+# View only error-level logs
+journalctl -u reader-buddy.service -p err
+```
+
+**Common debugging scenarios:**
+
+```bash
+# Check why the service failed to start
+journalctl -u reader-buddy.service -b --no-pager
+
+# Watch logs while testing (in one SSH session)
+journalctl -u reader-buddy.service -f
+
+# Then trigger Reader Buddy from your tablet and watch the output
+```
+
+**Tip**: If logs aren't appearing, ensure `StandardOutput=journal` and `StandardError=journal` are set in the service file. You can also add `--log-level debug` to the `ExecStart` line for more verbose output:
+
+```bash
+ExecStart=/opt/bin/reader-buddy --log-level debug
 ```
 
 ## Development
@@ -222,19 +350,118 @@ Set the environment variable: `export OPENAI_API_KEY=your-key`
 - Ensure the outline is complete (no gaps)
 
 ### Touch trigger not working
-- Verify the trigger corner setting (default is **lower-right**)
+- Verify the trigger corner setting (default is **lower-left**)
 - Make sure you're using your hand/finger, not the pen
+- **Hold for 3 full seconds** - a quick tap won't trigger
 - The trigger zone is 68x68 pixels in the specified corner
-- Try touching and holding for a moment before releasing
+- Keep your finger still in the zone for the full duration
+
+### X appears on my question page instead of answer
+If you see an X drawn in the bottom-right corner of your question page, it means the app could not find a valid answer page. This happens when:
+- **No page to the right**: You need to manually create a blank page to the right of your question page before triggering
+- **Page has existing content**: The page to the right has content that isn't a Reader Buddy answer page (e.g., your notes, a different document page)
+
+**Solution**: Navigate to the page with your question, add a new blank page to the right using the reMarkable's page menu, then trigger Reader Buddy again.
+
+### Answer not appearing on new page
+If the answer doesn't render and no X appears:
+- Enable debug logging: `--log-level debug` to see detailed execution flow
+- Check that the answer page was detected correctly (logs will show "Valid answer page found")
+
+### Debug Mode
+Enable debug dumps to troubleshoot rendering issues:
+```bash
+./reader-buddy --debug-dump --log-level debug
+```
+
+This will save to `/tmp/` on the reMarkable:
+- `reader-buddy-screenshot-*.png` - Original screenshots captured
+- `reader-buddy-erase-mask-*.png` - Visual overlay showing detected question regions (red box) and ink pixels to erase (yellow)
+
+**Copying debug files to your computer:**
+
+On Windows (PowerShell):
+```powershell
+# Copy all debug images from reMarkable to current directory
+scp root@10.11.99.1:/tmp/reader-buddy-*.png .
+
+# Or copy to a specific folder
+scp root@10.11.99.1:/tmp/reader-buddy-*.png C:\path\to\debug\folder\
+```
+
+On Linux/Mac:
+```bash
+# Copy all debug images from reMarkable to current directory
+scp root@10.11.99.1:/tmp/reader-buddy-*.png .
+
+# Or copy to a specific folder
+scp root@10.11.99.1:/tmp/reader-buddy-*.png ~/debug/
+```
+
+Replace `10.11.99.1` with your reMarkable's IP address. You can find the IP address in **Settings > Help > Copyrights and licenses** at the bottom.
+
+## Cleanup and Uninstall
+
+### Removing Reader Buddy from your reMarkable
+
+SSH into your reMarkable and remove the binary:
+```bash
+ssh root@10.11.99.1
+rm -f /opt/bin/reader-buddy
+```
+
+### Cleaning up debug files
+
+Remove debug images from the reMarkable:
+```bash
+ssh root@10.11.99.1
+rm -f /tmp/reader-buddy-*.png
+```
+
+### Clearing the cache
+
+Reader Buddy stores cached data in `/var/cache/reader-buddy/`, including the header pattern used to recognize existing answer pages across service restarts.
+
+**When to clear the cache:**
+- If answer page detection stops working correctly
+- After changing the "=== Reader Buddy Answers ===" header format
+- To force Reader Buddy to re-learn what an answer page looks like
+
+```bash
+ssh root@10.11.99.1
+rm -rf /var/cache/reader-buddy/
+```
+
+After clearing the cache, the next blank page you use will become the new reference pattern.
+
+### Complete cleanup (all at once)
+
+```bash
+ssh root@10.11.99.1 "rm -f /opt/bin/reader-buddy /tmp/reader-buddy-*.png && rm -rf /var/cache/reader-buddy/"
+```
+
+### Stopping a running instance
+
+If Reader Buddy is running in the background:
+```bash
+ssh root@10.11.99.1
+# Find the process
+ps | grep reader-buddy
+
+# Kill it (replace PID with actual process ID from the output)
+kill <PID>
+
+# Or kill using killall (kills all instances)
+killall reader-buddy
+```
 
 ## Known Limitations
 
-- **Single Question Per Trigger**: Processes one outline-question pair per trigger (future: may support multiple if use case emerges)
+- **Manual Page Creation Required**: You must create a blank page to the right of your question page before triggering - the app does not create pages automatically
+- **Single Question Per Trigger**: Processes one outline-question pair per trigger
 - **Outline Detection**: Currently LLM-based (future: add local CV algorithms as optimization)
-- **Symbol Rendering**: Currently simple geometric shapes (TODO: render actual ①②③④⑤ glyphs)
-- **Bounding Box Accuracy**: LLM provides approximate regions (may need fine-tuning for precise erasure)
 - **Internet Required**: Requires connection for ChatGPT API
-- **No Context Retention**: Each trigger is independent (no follow-up question support in v0.1)
+- **No Context Retention**: Each trigger is independent (no follow-up question support)
 
 ## Automated Releases
 
@@ -250,11 +477,17 @@ Releases are automatically created with pre-built binaries for both reMarkable d
 
 ## Contributing
 
-Contributions welcome! Remaining enhancements:
-- Proper ①②③④⑤ glyph rendering (currently simple shapes)
+Contributions welcome! Areas for enhancement:
 - Local CV outline detection (reduce LLM calls)
-- Improved bounding box accuracy
+- Multi-question support per trigger
 - Device testing and refinement
+- Automatic page creation (currently requires manual page setup)
+
+**Recent Improvements (v0.3)**:
+- ✅ Simplified workflow - user creates answer page, app detects blank/QA pages
+- ✅ Clear failure indication - X drawn in bottom-right when no valid answer page found
+- ✅ Debug dump mode for troubleshooting
+- ✅ Answer page reuse - multiple questions from same page share one answer page
 
 **Version Bumps**: Use `!` for major, `feature/` branches for minor, any code change for patch.
 

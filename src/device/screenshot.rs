@@ -11,8 +11,10 @@ use image::ImageEncoder;
 
 use super::DeviceModel;
 
-const VIRTUAL_WIDTH: u32 = 768;
-const VIRTUAL_HEIGHT: u32 = 1024;
+/// Virtual screen width - all screenshots are normalized to this size
+pub const SCREENSHOT_VIRTUAL_WIDTH: u32 = 768;
+/// Virtual screen height - all screenshots are normalized to this size  
+pub const SCREENSHOT_VIRTUAL_HEIGHT: u32 = 1024;
 
 pub struct Screenshot {
     data: Vec<u8>,
@@ -191,12 +193,15 @@ impl Screenshot {
         debug!("Encoding raw image data to PNG");
         let png_data = self.encode_png(&data)?;
 
-        // Resize the PNG to VIRTUAL_WIDTH x VIRTUAL_HEIGHT
-        debug!("Resizing image to {}x{}", VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+        // Resize the PNG to SCREENSHOT_VIRTUAL_WIDTH x SCREENSHOT_VIRTUAL_HEIGHT
+        debug!(
+            "Resizing image to {}x{}",
+            SCREENSHOT_VIRTUAL_WIDTH, SCREENSHOT_VIRTUAL_HEIGHT
+        );
         let img = image::load_from_memory(&png_data)?;
         let resized_img = img.resize_exact(
-            VIRTUAL_WIDTH,
-            VIRTUAL_HEIGHT,
+            SCREENSHOT_VIRTUAL_WIDTH,
+            SCREENSHOT_VIRTUAL_HEIGHT,
             image::imageops::FilterType::Nearest,
         );
 
@@ -210,16 +215,16 @@ impl Screenshot {
             DeviceModel::RemarkablePaperPro => {
                 encoder.write_image(
                     resized_img.as_rgba8().unwrap().as_raw(),
-                    VIRTUAL_WIDTH,
-                    VIRTUAL_HEIGHT,
+                    SCREENSHOT_VIRTUAL_WIDTH,
+                    SCREENSHOT_VIRTUAL_HEIGHT,
                     image::ExtendedColorType::Rgba8,
                 )?;
             }
             _ => {
                 encoder.write_image(
                     resized_img.as_luma8().unwrap().as_raw(),
-                    VIRTUAL_WIDTH,
-                    VIRTUAL_HEIGHT,
+                    SCREENSHOT_VIRTUAL_WIDTH,
+                    SCREENSHOT_VIRTUAL_HEIGHT,
                     image::ExtendedColorType::L8,
                 )?;
             }
