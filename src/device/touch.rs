@@ -133,12 +133,10 @@ impl Touch {
                 // Check for touch start (tracking ID assigned)
                 if event.code() == ABS_MT_TRACKING_ID && event.value() >= 0 {
                     let (x, y) = self.input_to_virtual((position_x, position_y));
-                    if self.is_in_trigger_zone(x, y) {
-                        if !in_zone {
-                            log::debug!("Touch started in trigger zone at ({}, {})", x, y);
-                            hold_start = Some(Instant::now());
-                            in_zone = true;
-                        }
+                    if self.is_in_trigger_zone(x, y) && !in_zone {
+                        log::debug!("Touch started in trigger zone at ({}, {})", x, y);
+                        hold_start = Some(Instant::now());
+                        in_zone = true;
                     }
                 }
 
