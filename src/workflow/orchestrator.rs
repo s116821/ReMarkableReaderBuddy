@@ -12,9 +12,9 @@ use crate::llm::{openai::OpenAI, LLMEngine};
 struct AnalysisResult {
     question: String,
     answer: String,
-    question_box: Option<BoundingBox>,
+    _question_box: Option<BoundingBox>,
     _outline_box: Option<BoundingBox>,
-    screenshot_data: Vec<u8>, // PNG data for downstream processing
+    _screenshot_data: Vec<u8>, // PNG data for downstream processing (reserved for future use)
 }
 
 /// High-level orchestrator for the complete workflow
@@ -124,9 +124,9 @@ impl Orchestrator {
             return Ok(Some(AnalysisResult {
                 question: "What does this mean?".to_string(),
                 answer: response,
-                question_box: None,
+                _question_box: None,
                 _outline_box: None,
-                screenshot_data: screenshot_png_data,
+                _screenshot_data: screenshot_png_data,
             }));
         }
 
@@ -151,9 +151,9 @@ impl Orchestrator {
         Ok(Some(AnalysisResult {
             question: question_text,
             answer: answer_text.to_string(),
-            question_box,
+            _question_box: question_box,
             _outline_box: outline_box,
-            screenshot_data: screenshot_png_data,
+            _screenshot_data: screenshot_png_data,
         }))
     }
 

@@ -12,8 +12,10 @@ use evdev::{Device, EventType as EvdevEventType, InputEvent};
 
 use super::DeviceModel;
 
-// Output dimensions remain the same for both devices
+// Output dimensions remain the same for both devices (only used on Linux)
+#[cfg(target_os = "linux")]
 const VIRTUAL_WIDTH: u32 = 768;
+#[cfg(target_os = "linux")]
 const VIRTUAL_HEIGHT: u32 = 1024;
 
 #[cfg(target_os = "linux")]
@@ -24,7 +26,7 @@ pub struct Pen {
 
 #[cfg(not(target_os = "linux"))]
 pub struct Pen {
-    device_model: DeviceModel,
+    _device_model: DeviceModel,
 }
 
 #[cfg(target_os = "linux")]
@@ -265,7 +267,9 @@ impl Pen {
         let device_model = DeviceModel::detect();
         info!("Pen using device model: {}", device_model.name());
 
-        Self { device_model }
+        Self {
+            _device_model: device_model,
+        }
     }
 
     pub fn draw_line_screen(&mut self, _p1: (i32, i32), _p2: (i32, i32)) -> Result<()> {

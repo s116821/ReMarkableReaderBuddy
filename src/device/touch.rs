@@ -35,18 +35,28 @@ impl TriggerCorner {
     }
 }
 
-// Output dimensions remain the same for both devices
+// Output dimensions remain the same for both devices (only used on Linux)
+#[cfg(target_os = "linux")]
 const VIRTUAL_WIDTH: u16 = 768;
+#[cfg(target_os = "linux")]
 const VIRTUAL_HEIGHT: u16 = 1024;
 
-// Event codes
+// Event codes (only used on Linux)
+#[cfg(target_os = "linux")]
 const ABS_MT_SLOT: u16 = 47;
+#[cfg(target_os = "linux")]
 const ABS_MT_TOUCH_MAJOR: u16 = 48;
+#[cfg(target_os = "linux")]
 const ABS_MT_TOUCH_MINOR: u16 = 49;
+#[cfg(target_os = "linux")]
 const ABS_MT_ORIENTATION: u16 = 52;
+#[cfg(target_os = "linux")]
 const ABS_MT_POSITION_X: u16 = 53;
+#[cfg(target_os = "linux")]
 const ABS_MT_POSITION_Y: u16 = 54;
+#[cfg(target_os = "linux")]
 const ABS_MT_TRACKING_ID: u16 = 57;
+#[cfg(target_os = "linux")]
 const ABS_MT_PRESSURE: u16 = 58;
 
 #[cfg(target_os = "linux")]
@@ -58,8 +68,8 @@ pub struct Touch {
 
 #[cfg(not(target_os = "linux"))]
 pub struct Touch {
-    device_model: DeviceModel,
-    trigger_corner: TriggerCorner,
+    _device_model: DeviceModel,
+    _trigger_corner: TriggerCorner,
 }
 
 #[cfg(target_os = "linux")]
@@ -292,8 +302,8 @@ impl Touch {
         info!("Touch using device model: {}", device_model.name());
 
         Self {
-            device_model,
-            trigger_corner,
+            _device_model: device_model,
+            _trigger_corner: trigger_corner,
         }
     }
 

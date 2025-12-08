@@ -538,7 +538,7 @@ impl Workflow {
                 }
 
                 let pixel2 = gray2.get_pixel(x, y);
-                let diff = (pixel1[0] as i32 - pixel2[0] as i32).abs() as u64;
+                let diff = (pixel1[0] as i32 - pixel2[0] as i32).unsigned_abs() as u64;
                 total_diff += diff * diff;
                 pixel_count += 1;
             }
