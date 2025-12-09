@@ -34,6 +34,47 @@ An AI-powered reading assistant for the reMarkable tablet that watches for circl
 - OpenAI API key
 - Rust toolchain and `cross` for cross-compilation
 
+### SSH Host Configuration
+
+Throughout this documentation, `RM2` refers to your reMarkable 2 and `RMPP` refers to your reMarkable Paper Pro. You should replace these with your device's actual connection info.
+
+**Option 1: Use IP address directly**
+
+Replace `RM2` or `RMPP` with `root@<IP_ADDRESS>` in all commands:
+```bash
+# Example: if your IP is 10.11.99.1
+ssh root@10.11.99.1
+scp file.txt root@10.11.99.1:
+```
+
+**Option 2: Configure SSH host alias (recommended)**
+
+Add an entry to your SSH config file (`~/.ssh/config` on Linux/Mac, `%USERPROFILE%\.ssh\config` on Windows):
+
+```
+Host RM2
+    HostName 10.11.99.1
+    User root
+
+Host RMPP
+    HostName 10.11.99.1
+    User root
+```
+
+Then you can simply use `ssh RM2` or `scp file.txt RM2:` in all commands.
+
+**Finding your reMarkable's IP address:**
+
+1. **USB connection**: Connect via USB cable → IP is typically `10.11.99.1`
+2. **Wi-Fi connection**: On your reMarkable, go to **Settings > Help > Copyrights and licenses** → scroll to the bottom to find the IP (usually starts with `192.168.x.x`)
+3. **reMarkable app**: If using the reMarkable desktop app, check the connection settings
+
+**Troubleshooting connection issues:**
+- Ensure your reMarkable is awake (not in sleep mode)
+- Verify developer mode is enabled
+- Check that SSH is enabled in device settings
+- Try both USB and Wi-Fi IPs if one doesn't work
+
 ### Building
 
 ```bash
@@ -62,11 +103,11 @@ tar xzf reader-buddy-armv7-unknown-linux-gnueabihf.tar.gz  # For reMarkable 2
 # or
 tar xzf reader-buddy-aarch64-unknown-linux-gnu.tar.gz      # For Paper Pro
 
-# Copy to reMarkable (replace IP address)
-scp reader-buddy root@10.11.99.1:
+# Copy to reMarkable
+scp reader-buddy RM2:    # or RMPP: for Paper Pro
 
 # SSH into reMarkable
-ssh root@10.11.99.1
+ssh RM2    # or RMPP for Paper Pro
 
 # Set environment variables
 export OPENAI_API_KEY=your-key-here
@@ -81,11 +122,13 @@ export OPENAI_API_KEY=your-key-here
 # Build using the script
 ./build.sh rm2    # or ./build.sh rmpp
 
-# Copy to reMarkable (replace IP address)
-scp target/armv7-unknown-linux-gnueabihf/release/reader-buddy root@10.11.99.1:
+# Copy to reMarkable
+scp target/armv7-unknown-linux-gnueabihf/release/reader-buddy RM2:
+# For Paper Pro use:
+# scp target/aarch64-unknown-linux-gnu/release/reader-buddy RMPP:
 
 # SSH into reMarkable
-ssh root@10.11.99.1
+ssh RM2    # or RMPP for Paper Pro
 
 # Set environment variables
 export OPENAI_API_KEY=your-key-here
@@ -171,23 +214,24 @@ To have Reader Buddy start automatically when your reMarkable boots:
 
 ```bash
 # SSH into reMarkable and create the directory
-ssh root@10.11.99.1 "mkdir -p /opt/bin"
+ssh RM2 "mkdir -p /opt/bin"
 
 # Copy the binary to the proper location
-scp reader-buddy root@10.11.99.1:/opt/bin/reader-buddy
+scp reader-buddy RM2:/opt/bin/reader-buddy
 
 # Or if building from source:
-scp target/armv7-unknown-linux-gnueabihf/release/reader-buddy root@10.11.99.1:/opt/bin/reader-buddy
-# For Paper Pro use: target/aarch64-unknown-linux-gnu/release/reader-buddy
+scp target/armv7-unknown-linux-gnueabihf/release/reader-buddy RM2:/opt/bin/reader-buddy
+# For Paper Pro use:
+# scp target/aarch64-unknown-linux-gnu/release/reader-buddy RMPP:/opt/bin/reader-buddy
 
 # Make sure it's executable
-ssh root@10.11.99.1 "chmod +x /opt/bin/reader-buddy"
+ssh RM2 "chmod +x /opt/bin/reader-buddy"
 ```
 
 **1. Create the systemd service file:**
 
 ```bash
-ssh root@10.11.99.1
+ssh RM2
 cat > /etc/systemd/system/reader-buddy.service << 'EOF'
 [Unit]
 Description=ReMarkable Reader Buddy
@@ -383,22 +427,61 @@ This will save to `/tmp/` on the reMarkable:
 On Windows (PowerShell):
 ```powershell
 # Copy all debug images from reMarkable to current directory
-scp root@10.11.99.1:/tmp/reader-buddy-*.png .
+scp RM2:/tmp/reader-buddy-*.png .
 
 # Or copy to a specific folder
-scp root@10.11.99.1:/tmp/reader-buddy-*.png C:\path\to\debug\folder\
+scp RM2:/tmp/reader-buddy-*.png C:\path\to\debug\folder\
 ```
 
 On Linux/Mac:
 ```bash
 # Copy all debug images from reMarkable to current directory
-scp root@10.11.99.1:/tmp/reader-buddy-*.png .
+scp RM2:/tmp/reader-buddy-*.png .
 
 # Or copy to a specific folder
-scp root@10.11.99.1:/tmp/reader-buddy-*.png ~/debug/
+scp RM2:/tmp/reader-buddy-*.png ~/debug/
 ```
 
-Replace `10.11.99.1` with your reMarkable's IP address. You can find the IP address in **Settings > Help > Copyrights and licenses** at the bottom.
+### Downloading Temp and Cache Files for Debugging
+
+For deeper debugging, you can copy all temp files and cache data to your local machine:
+
+**Temp files** (`/tmp/`) contain:
+- `reader-buddy-screenshot-*.png` - Screenshots captured during execution
+- `reader-buddy-erase-mask-*.png` - Erase mask visualizations
+- Other runtime debug files
+
+**Cache files** (`/var/cache/reader-buddy/`) contain:
+- Header pattern used for answer page detection
+- Other cached recognition data
+
+#### Windows (PowerShell)
+
+```powershell
+# Copy all temp files to Downloads folder
+scp RM2:/tmp/reader-buddy-* $env:USERPROFILE\Downloads\
+
+# Copy entire cache directory to Downloads folder
+scp -r RM2:/var/cache/reader-buddy $env:USERPROFILE\Downloads\
+
+# Copy both temp and cache in one session
+scp RM2:/tmp/reader-buddy-* $env:USERPROFILE\Downloads\; scp -r RM2:/var/cache/reader-buddy $env:USERPROFILE\Downloads\
+```
+
+#### Linux/Mac
+
+```bash
+# Copy all temp files to Downloads folder
+scp RM2:/tmp/reader-buddy-* ~/Downloads/
+
+# Copy entire cache directory to Downloads folder
+scp -r RM2:/var/cache/reader-buddy ~/Downloads/
+
+# Copy both temp and cache in one session
+scp RM2:/tmp/reader-buddy-* ~/Downloads/ && scp -r RM2:/var/cache/reader-buddy ~/Downloads/
+```
+
+**Tip**: If you're debugging an issue, run with `--debug-dump --log-level debug` first to generate the temp files.
 
 ## Cleanup and Uninstall
 
@@ -406,7 +489,7 @@ Replace `10.11.99.1` with your reMarkable's IP address. You can find the IP addr
 
 SSH into your reMarkable and remove the binary:
 ```bash
-ssh root@10.11.99.1
+ssh RM2
 rm -f /opt/bin/reader-buddy
 ```
 
@@ -414,7 +497,7 @@ rm -f /opt/bin/reader-buddy
 
 Remove debug images from the reMarkable:
 ```bash
-ssh root@10.11.99.1
+ssh RM2
 rm -f /tmp/reader-buddy-*.png
 ```
 
@@ -428,7 +511,7 @@ Reader Buddy stores cached data in `/var/cache/reader-buddy/`, including the hea
 - To force Reader Buddy to re-learn what an answer page looks like
 
 ```bash
-ssh root@10.11.99.1
+ssh RM2
 rm -rf /var/cache/reader-buddy/
 ```
 
@@ -437,14 +520,14 @@ After clearing the cache, the next blank page you use will become the new refere
 ### Complete cleanup (all at once)
 
 ```bash
-ssh root@10.11.99.1 "rm -f /opt/bin/reader-buddy /tmp/reader-buddy-*.png && rm -rf /var/cache/reader-buddy/"
+ssh RM2 "rm -f /opt/bin/reader-buddy /tmp/reader-buddy-*.png && rm -rf /var/cache/reader-buddy/"
 ```
 
 ### Stopping a running instance
 
 If Reader Buddy is running in the background:
 ```bash
-ssh root@10.11.99.1
+ssh RM2
 # Find the process
 ps | grep reader-buddy
 
